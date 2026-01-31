@@ -15,5 +15,10 @@
   ],
   subdirectories: ["priv/*/migrations"],
   plugins: [Spark.Formatter, Phoenix.LiveView.HTMLFormatter],
-  inputs: ["*.{heex,ex,exs}", "{config,lib,test}/**/*.{heex,ex,exs}", "priv/*/seeds.exs"]
+  inputs: [
+    "{mix,.formatter,.credo}.exs",
+    "{config,lib,test}/**/*.{heex,ex,exs}",
+    "priv/*/seeds.exs"
+  ],
+  line_length: 120
 ]

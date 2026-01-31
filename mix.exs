@@ -1,18 +1,22 @@
 defmodule AgentJido.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/agentjido/agent_jido"
+
   def project do
     [
       app: :agent_jido,
-      version: "0.1.0",
-      elixir: "~> 1.15",
+      version: @version,
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      consolidate_protocols: Mix.env() != :dev
+      consolidate_protocols: Mix.env() != :dev,
+      docs: docs()
     ]
   end
 
@@ -35,6 +39,15 @@ defmodule AgentJido.MixProject do
   # Specifies which paths to compile per environment.
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
+
+  defp docs do
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      source_url: @source_url,
+      extras: ["README.md", "CHANGELOG.md", "CONTRIBUTING.md"]
+    ]
+  end
 
   # Specifies your project dependencies.
   #
@@ -73,6 +86,7 @@ defmodule AgentJido.MixProject do
       # HTTP & API
       {:req, "~> 0.5"},
       {:open_api_spex, "~> 3.0"},
+      {:plug_canonical_host, "~> 2.0"},
 
       # Email
       {:swoosh, "~> 1.16"},
@@ -106,7 +120,19 @@ defmodule AgentJido.MixProject do
       {:usage_rules, "~> 0.1", only: [:dev]},
       {:tidewave, "~> 0.5", only: [:dev]},
       {:mishka_chelekom, "~> 0.0", only: [:dev]},
-      {:live_debugger, "~> 0.5", only: [:dev]}
+      {:live_debugger, "~> 0.5", only: [:dev]},
+
+      # Quality tools
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:doctor, "~> 0.21", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.18", only: [:dev, :test]},
+      {:git_hooks, "~> 0.8", only: [:dev, :test], runtime: false},
+      {:git_ops, "~> 2.9", only: :dev, runtime: false},
+
+      # Error handling
+      {:splode, "~> 0.3"}
     ]
   end
 
@@ -129,7 +155,13 @@ defmodule AgentJido.MixProject do
         "esbuild agent_jido --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      quality: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "credo --strict",
+        "doctor --raise"
+      ]
     ]
   end
 end
