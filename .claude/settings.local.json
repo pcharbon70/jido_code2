@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Tidewave-Web__browser_eval",
+      "mcp__Tidewave__get_logs",
+      "mcp__Tidewave__project_eval",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run:*)",
+      "Bash(mix phx.digest:*)",
+      "mcp__Tidewave__execute_sql_query",
+      "mcp__Tidewave-Web__restart_app_server"
+    ],
+    "defaultMode": "bypassPermissions"
+  }
+}

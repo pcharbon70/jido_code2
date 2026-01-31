@@ -3,7 +3,11 @@ defmodule AgentJidoWeb.HomeLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    if socket.assigns[:current_user] do
+      {:ok, Phoenix.LiveView.redirect(socket, to: ~p"/dashboard")}
+    else
+      {:ok, socket}
+    end
   end
 
   @impl true

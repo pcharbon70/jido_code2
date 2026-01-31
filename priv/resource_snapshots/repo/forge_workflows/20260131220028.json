@@ -21,19 +21,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "github_delivery_id",
-      "type": "text"
-    },
-    {
-      "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "event_type",
+      "source": "name",
       "type": "text"
     },
     {
@@ -45,8 +33,20 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "action",
+      "source": "description",
       "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "version",
+      "type": "bigint"
     },
     {
       "allow_nil?": false,
@@ -57,44 +57,74 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "payload",
+      "source": "steps",
+      "type": [
+        "array",
+        "map"
+      ]
+    },
+    {
+      "allow_nil?": true,
+      "default": "3600000",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "timeout_ms",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "\"halt\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "on_error",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "0",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "max_retries",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "[]",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "tags",
+      "type": [
+        "array",
+        "text"
+      ]
+    },
+    {
+      "allow_nil?": true,
+      "default": "%{}",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "metadata",
       "type": "map"
-    },
-    {
-      "allow_nil?": false,
-      "default": "\"pending\"",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "status",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "error_message",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "processed_at",
-      "type": "utc_datetime_usec"
     },
     {
       "allow_nil?": false,
@@ -119,37 +149,6 @@
       "size": null,
       "source": "updated_at",
       "type": "utc_datetime_usec"
-    },
-    {
-      "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": {
-        "deferrable": false,
-        "destination_attribute": "id",
-        "destination_attribute_default": null,
-        "destination_attribute_generated": null,
-        "index?": false,
-        "match_type": null,
-        "match_with": null,
-        "multitenancy": {
-          "attribute": null,
-          "global": null,
-          "strategy": null
-        },
-        "name": "github_webhook_deliveries_repo_id_fkey",
-        "on_delete": null,
-        "on_update": null,
-        "primary_key?": true,
-        "schema": "public",
-        "table": "github_repos"
-      },
-      "scale": null,
-      "size": null,
-      "source": "repo_id",
-      "type": "uuid"
     }
   ],
   "base_filter": null,
@@ -158,19 +157,19 @@
   "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "2BFA218C577C9E7F8C6CBEFBFC1F86E8148FC0DC1FCDEA7FAED0AA7A9CCC228B",
+  "hash": "1093D9CCC417AAA5B3843BC91BC464DE13A5C8C103B4FA94A3AC7BCF957D2444",
   "identities": [
     {
       "all_tenants?": false,
       "base_filter": null,
-      "index_name": "github_webhook_deliveries_unique_github_delivery_index",
+      "index_name": "forge_workflows_unique_name_index",
       "keys": [
         {
           "type": "atom",
-          "value": "github_delivery_id"
+          "value": "name"
         }
       ],
-      "name": "unique_github_delivery",
+      "name": "unique_name",
       "nils_distinct?": true,
       "where": null
     }
@@ -182,5 +181,5 @@
   },
   "repo": "Elixir.AgentJido.Repo",
   "schema": null,
-  "table": "github_webhook_deliveries"
+  "table": "forge_workflows"
 }

@@ -36,39 +36,36 @@ defmodule AgentJidoWeb.SettingsLive do
                 <.link
                   patch={~p"/settings/github"}
                   class={[
-                    "block px-4 py-2 rounded-lg transition-colors",
-                    @active_tab == "github" && "bg-primary-light text-white dark:bg-primary-dark",
-                    @active_tab != "github" && "hover:bg-base-border-light dark:hover:bg-base-border-dark"
+                    "block px-4 py-2 rounded-lg transition-colors text-base-content",
+                    @active_tab == "github" && "bg-primary text-primary-content font-medium",
+                    @active_tab != "github" && "hover:bg-base-200"
                   ]}
                 >
-                  <.icon name="hero-code-bracket" class="w-5 h-5 inline-block mr-2" />
-                  GitHub
+                  <.icon name="hero-code-bracket" class="w-5 h-5 inline-block mr-2" /> GitHub
                 </.link>
               </li>
               <li>
                 <.link
                   patch={~p"/settings/agents"}
                   class={[
-                    "block px-4 py-2 rounded-lg transition-colors",
-                    @active_tab == "agents" && "bg-primary-light text-white dark:bg-primary-dark",
-                    @active_tab != "agents" && "hover:bg-base-border-light dark:hover:bg-base-border-dark"
+                    "block px-4 py-2 rounded-lg transition-colors text-base-content",
+                    @active_tab == "agents" && "bg-primary text-primary-content font-medium",
+                    @active_tab != "agents" && "hover:bg-base-200"
                   ]}
                 >
-                  <.icon name="hero-cpu-chip" class="w-5 h-5 inline-block mr-2" />
-                  Agents
+                  <.icon name="hero-cpu-chip" class="w-5 h-5 inline-block mr-2" /> Agents
                 </.link>
               </li>
               <li>
                 <.link
                   patch={~p"/settings/account"}
                   class={[
-                    "block px-4 py-2 rounded-lg transition-colors",
-                    @active_tab == "account" && "bg-primary-light text-white dark:bg-primary-dark",
-                    @active_tab != "account" && "hover:bg-base-border-light dark:hover:bg-base-border-dark"
+                    "block px-4 py-2 rounded-lg transition-colors text-base-content",
+                    @active_tab == "account" && "bg-primary text-primary-content font-medium",
+                    @active_tab != "account" && "hover:bg-base-200"
                   ]}
                 >
-                  <.icon name="hero-user-circle" class="w-5 h-5 inline-block mr-2" />
-                  Account
+                  <.icon name="hero-user-circle" class="w-5 h-5 inline-block mr-2" /> Account
                 </.link>
               </li>
             </ul>
@@ -136,10 +133,13 @@ defmodule AgentJidoWeb.SettingsLive do
             Manage repositories connected to your agent workflows
           </p>
         </div>
-        <.button phx-click="open_add_modal" color="primary">
-          <.icon name="hero-plus" class="w-4 h-4 mr-1" />
-          Add Repository
-        </.button>
+        <button
+          type="button"
+          phx-click="open_add_modal"
+          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          <.icon name="hero-plus" class="w-4 h-4 mr-1 inline" /> Add Repository
+        </button>
       </div>
 
       <div class="space-y-4" id="repos-list" phx-update="stream">
@@ -183,7 +183,7 @@ defmodule AgentJidoWeb.SettingsLive do
           </div>
         </.card>
 
-        <.card :if={Enum.empty?(@repos)} padding="large" rounded="large" class="text-center">
+        <.card :if={Enum.empty?(Map.values(@repos))} padding="large" rounded="large" class="text-center">
           <.icon name="hero-inbox" class="w-12 h-12 mx-auto text-base-content/30 mb-3" />
           <p class="text-base-content/70">No repositories configured yet.</p>
           <p class="text-sm text-base-content/50 mt-1">
