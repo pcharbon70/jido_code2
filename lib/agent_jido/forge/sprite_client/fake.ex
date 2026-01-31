@@ -78,7 +78,7 @@ defmodule AgentJido.Forge.SpriteClient.Fake do
 
     env =
       sprite_state.env
-      |> Enum.map(fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
+      |> Enum.map(fn {k, v} -> {to_binary_string(k), to_binary_string(v)} end)
 
     cmd_opts = [
       cd: sprite_state.dir,
@@ -105,7 +105,7 @@ defmodule AgentJido.Forge.SpriteClient.Fake do
 
     env =
       sprite_state.env
-      |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+      |> Enum.map(fn {k, v} -> {to_binary_string(k), to_binary_string(v)} end)
 
     port_opts = [
       :binary,
@@ -172,7 +172,13 @@ defmodule AgentJido.Forge.SpriteClient.Fake do
       [sprite_id | _] ->
         Agent.update(agent_pid, fn sprites ->
           update_in(sprites, [sprite_id, :env], fn existing_env ->
-            Map.merge(existing_env || %{}, env_map)
+            # Normalize all env values to strings (binaries)
+            normalized_map =
+              env_map
+              |> Enum.map(fn {k, v} -> {to_binary_string(k), to_binary_string(v)} end)
+              |> Map.new()
+
+            Map.merge(existing_env || %{}, normalized_map)
           end)
         end)
 
@@ -234,4 +240,7 @@ defmodule AgentJido.Forge.SpriteClient.Fake do
       Path.join(base_dir, path)
     end
   end
+
+  defp to_binary_string(value) when is_binary(value), do: value
+  defp to_binary_string(value) when is_list(value), do: :unicode.characters_to_binary(value)
 end

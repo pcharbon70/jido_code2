@@ -11,6 +11,7 @@ defmodule AgentJido.Forge.SpriteSession do
   require Logger
 
   alias AgentJido.Forge.Bootstrap
+  alias AgentJido.Forge.PubSub, as: ForgePubSub
   alias AgentJido.Forge.SpriteClient
 
   @type session_id :: String.t()
@@ -120,6 +121,7 @@ defmodule AgentJido.Forge.SpriteSession do
             last_activity: DateTime.utc_now()
         }
 
+        notify_status(new_state)
         send(self(), :bootstrap)
         {:noreply, new_state}
 
@@ -146,6 +148,7 @@ defmodule AgentJido.Forge.SpriteSession do
                 last_activity: DateTime.utc_now()
             }
 
+            notify_status(new_state)
             send(self(), :init_runner)
             {:noreply, new_state}
 
@@ -173,6 +176,7 @@ defmodule AgentJido.Forge.SpriteSession do
             last_activity: DateTime.utc_now()
         }
 
+        notify_status(new_state)
         {:noreply, new_state}
 
       {:error, reason} ->
@@ -201,6 +205,7 @@ defmodule AgentJido.Forge.SpriteSession do
         last_activity: DateTime.utc_now()
     }
 
+    notify_status(new_state)
     {:noreply, new_state}
   end
 
@@ -260,10 +265,12 @@ defmodule AgentJido.Forge.SpriteSession do
   def handle_cast({:iteration_complete, result, from, iteration}, state) do
     new_state =
       case result do
-        {:ok, %{status: :needs_input}} ->
+        {:ok, %{status: :needs_input} = r} ->
+          ForgePubSub.broadcast_session(state.session_id, {:needs_input, %{prompt: r[:question]}})
           %{state | state: :needs_input, last_activity: DateTime.utc_now()}
 
-        {:ok, _result} ->
+        {:ok, result_map} ->
+          if output = result_map[:output], do: notify_output(state, output)
           %{state | state: :ready, last_activity: DateTime.utc_now()}
 
         {:error, _reason} ->
@@ -271,6 +278,7 @@ defmodule AgentJido.Forge.SpriteSession do
       end
 
     new_state = %{new_state | iteration: iteration}
+    notify_status(new_state)
     GenServer.reply(from, result)
     {:noreply, new_state}
   end
@@ -278,6 +286,8 @@ defmodule AgentJido.Forge.SpriteSession do
   @impl true
   def terminate(reason, state) do
     Logger.debug("Terminating session #{state.session_id}: #{inspect(reason)}")
+
+    ForgePubSub.broadcast_session(state.session_id, {:stopped, reason})
 
     if function_exported?(state.runner, :terminate, 2) do
       state.runner.terminate(state.client, reason)
@@ -301,4 +311,23 @@ defmodule AgentJido.Forge.SpriteSession do
   defp resolve_runner(:workflow), do: AgentJido.Forge.Runners.Workflow
   defp resolve_runner(:custom), do: AgentJido.Forge.Runners.Custom
   defp resolve_runner(module) when is_atom(module), do: module
+
+  defp notify_status(state) do
+    status = %{
+      session_id: state.session_id,
+      state: state.state,
+      sprite_id: state.sprite_id,
+      iteration: state.iteration,
+      started_at: state.started_at,
+      last_activity: state.last_activity
+    }
+
+    ForgePubSub.broadcast_session(state.session_id, {:status, status})
+  end
+
+  defp notify_output(state, output) when is_binary(output) and output != "" do
+    ForgePubSub.broadcast_session(state.session_id, {:output, %{chunk: output, seq: state.iteration}})
+  end
+
+  defp notify_output(_state, _output), do: :ok
 end

@@ -10,6 +10,7 @@ defmodule AgentJido.Forge.Manager do
 
   require Logger
 
+  alias AgentJido.Forge.PubSub, as: ForgePubSub
   alias AgentJido.Forge.SpriteSession
 
   @supervisor AgentJido.Forge.SpriteSupervisor
@@ -82,6 +83,7 @@ defmodule AgentJido.Forge.Manager do
             Process.monitor(pid)
             new_sessions = MapSet.put(state.sessions, session_id)
             Logger.debug("Started session #{session_id} with pid #{inspect(pid)}")
+            ForgePubSub.broadcast_sessions({:session_started, session_id})
             {:reply, {:ok, pid}, %{state | sessions: new_sessions}}
 
           {:error, reason} ->
@@ -90,12 +92,13 @@ defmodule AgentJido.Forge.Manager do
     end
   end
 
-  def handle_call({:stop_session, session_id, _reason}, _from, state) do
+  def handle_call({:stop_session, session_id, reason}, _from, state) do
     case Registry.lookup(@registry, session_id) do
       [{pid, _}] ->
         DynamicSupervisor.terminate_child(@supervisor, pid)
         new_sessions = MapSet.delete(state.sessions, session_id)
         Logger.debug("Stopped session #{session_id}")
+        ForgePubSub.broadcast_sessions({:session_stopped, session_id, reason})
         {:reply, :ok, %{state | sessions: new_sessions}}
 
       [] ->
