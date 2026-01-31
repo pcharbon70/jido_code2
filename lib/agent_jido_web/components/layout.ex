@@ -93,8 +93,7 @@ defmodule AgentJidoWeb.Components.Layout do
     default: "",
     doc: "Additional CSS classes to apply to the container"
 
-  attr :rest, :global,
-    doc: "Any valid global HTML attributes passed to the component (e.g. aria, data-*)"
+  attr :rest, :global, doc: "Any valid global HTML attributes passed to the component (e.g. aria, data-*)"
 
   slot :inner_block,
     required: false,
@@ -210,8 +209,7 @@ defmodule AgentJidoWeb.Components.Layout do
     default: "",
     doc: "Additional CSS classes to apply to the container"
 
-  attr :rest, :global,
-    doc: "Any valid global HTML attributes passed to the component (e.g. aria, data-*)"
+  attr :rest, :global, doc: "Any valid global HTML attributes passed to the component (e.g. aria, data-*)"
 
   slot :inner_block,
     required: false,

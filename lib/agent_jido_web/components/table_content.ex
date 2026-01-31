@@ -77,12 +77,10 @@ defmodule AgentJidoWeb.Components.TableContent do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -97,8 +95,7 @@ defmodule AgentJidoWeb.Components.TableContent do
     attr :active, :boolean, doc: "Indicates whether the element is currently active and visible"
     attr :title_class, :string, doc: "Custom CSS class for additional styling to title"
 
-    attr :wrapper_class, :string,
-      doc: "Custom CSS class for additional styling to content wrapper"
+    attr :wrapper_class, :string, doc: "Custom CSS class for additional styling to content wrapper"
 
     attr :link_class, :string, doc: "Custom CSS class for additional styling to link"
     attr :content_class, :string, doc: "Custom CSS class for additional styling to content"
@@ -199,8 +196,7 @@ defmodule AgentJidoWeb.Components.TableContent do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -270,8 +266,7 @@ defmodule AgentJidoWeb.Components.TableContent do
     doc: "Indicates whether the element is currently active and visible"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 

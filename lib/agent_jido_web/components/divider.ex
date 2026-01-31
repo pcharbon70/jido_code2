@@ -52,8 +52,7 @@ defmodule AgentJidoWeb.Components.Divider do
 
   attr :size, :string,
     default: "extra_small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :width, :string, default: "full", doc: "Determines the element width"
   attr :height, :string, default: "auto", doc: "Determines the element width"
@@ -70,8 +69,7 @@ defmodule AgentJidoWeb.Components.Divider do
     attr :color, :string, doc: "Determines color theme"
 
     attr :size, :string,
-      doc:
-        "Determines the overall size of the elements, including padding, font size, and other items"
+      doc: "Determines the overall size of the elements, including padding, font size, and other items"
   end
 
   slot :icon, required: false do
@@ -81,15 +79,13 @@ defmodule AgentJidoWeb.Components.Divider do
     attr :color, :string, doc: "Determines color theme"
 
     attr :size, :string,
-      doc:
-        "Determines the overall size of the elements, including padding, font size, and other items"
+      doc: "Determines the overall size of the elements, including padding, font size, and other items"
   end
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def divider(%{variation: "vertical"} = assigns) do
     ~H"""
@@ -202,8 +198,7 @@ defmodule AgentJidoWeb.Components.Divider do
 
   attr :size, :string,
     default: "extra_small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :width, :string, default: "full", doc: "Determines the element width"
   attr :margin, :string, default: "none", doc: "Determines the element margin"
@@ -214,8 +209,7 @@ defmodule AgentJidoWeb.Components.Divider do
     attr :color, :string, doc: "Determines color theme"
 
     attr :size, :string,
-      doc:
-        "Determines the overall size of the elements, including padding, font size, and other items"
+      doc: "Determines the overall size of the elements, including padding, font size, and other items"
   end
 
   slot :icon, required: false do
@@ -225,15 +219,13 @@ defmodule AgentJidoWeb.Components.Divider do
     attr :color, :string, doc: "Determines color theme"
 
     attr :size, :string,
-      doc:
-        "Determines the overall size of the elements, including padding, font size, and other items"
+      doc: "Determines the overall size of the elements, including padding, font size, and other items"
   end
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def hr(assigns) do
     ~H"""

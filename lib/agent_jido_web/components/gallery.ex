@@ -59,8 +59,7 @@ defmodule AgentJidoWeb.Components.Gallery do
   attr :animation_size, :string, default: "extra_small", doc: "Determines gap between elements"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -108,8 +107,7 @@ defmodule AgentJidoWeb.Components.Gallery do
   attr :shadow, :string, default: "shadow-none", doc: "Determines shadow style"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -174,8 +172,7 @@ defmodule AgentJidoWeb.Components.Gallery do
     doc: "Optional slot for rendering each media item with let={media}"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def filterable_gallery(assigns) do
     assigns = assign_new(assigns, :id, fn -> random_id() end)
@@ -228,9 +225,7 @@ defmodule AgentJidoWeb.Components.Gallery do
         <div
           :for={media <- @media}
           data-gallery-item
-          data-category={
-            if is_list(media.category), do: Enum.join(media.category, ","), else: media.category
-          }
+          data-category={if is_list(media.category), do: Enum.join(media.category, ","), else: media.category}
           class="transition-all duration-300 ease-in-out transform opacity-100 scale-100"
         >
           <div :if={@media_block != []}>

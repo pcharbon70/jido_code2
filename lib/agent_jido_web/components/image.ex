@@ -53,8 +53,7 @@ defmodule AgentJidoWeb.Components.Image do
 
   attr :sizes, :string,
     default: nil,
-    doc:
-      "Specifies the intended display size of the image in the layout for different viewport conditions"
+    doc: "Specifies the intended display size of the image in the layout for different viewport conditions"
 
   attr :ismap, :string, default: nil, doc: "Make the image act as a server-side image map"
 
@@ -63,16 +62,14 @@ defmodule AgentJidoWeb.Components.Image do
 
   attr :decoding, :string,
     default: nil,
-    doc:
-      "Refers to the process of converting encoded or encrypted data back into its original format"
+    doc: "Refers to the process of converting encoded or encrypted data back into its original format"
 
   attr :rounded, :string, default: "", doc: "Determines the border radius"
   attr :shadow, :string, default: "", doc: "Determines shadow style"
   attr :class, :any, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def image(assigns) do
     ~H"""

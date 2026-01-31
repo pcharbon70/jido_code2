@@ -53,8 +53,7 @@ defmodule AgentJidoWeb.Components.Icon do
   attr :class, :any, default: nil
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def icon(%{name: "hero-" <> _} = assigns) do
     ~H"""

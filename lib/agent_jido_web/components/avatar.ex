@@ -59,8 +59,7 @@ defmodule AgentJidoWeb.Components.Avatar do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :shadow, :string, default: "none", doc: "Determines shadow style"
 
@@ -79,13 +78,11 @@ defmodule AgentJidoWeb.Components.Avatar do
     attr :color, :string, doc: "Determines color theme"
 
     attr :size, :string,
-      doc:
-        "Determines the overall size of the elements, including padding, font size, and other items"
+      doc: "Determines the overall size of the elements, including padding, font size, and other items"
   end
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -207,8 +204,7 @@ defmodule AgentJidoWeb.Components.Avatar do
   attr :space, :string, default: "medium", doc: "Space between items"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 

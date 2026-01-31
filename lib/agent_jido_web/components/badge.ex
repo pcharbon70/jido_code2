@@ -68,8 +68,7 @@ defmodule AgentJidoWeb.Components.Badge do
 
   attr :size, :string,
     default: "extra_small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :rounded, :string, default: "small", doc: "Determines the border radius"
 
@@ -102,10 +101,8 @@ defmodule AgentJidoWeb.Components.Badge do
     doc: "A map of additional parameters used for element configuration, such as type or kind"
 
   attr :rest, :global,
-    include:
-      ["pinging", "circle"] ++ @dismiss_positions ++ @indicator_positions ++ @icon_positions,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    include: ["pinging", "circle"] ++ @dismiss_positions ++ @indicator_positions ++ @icon_positions,
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -199,13 +196,10 @@ defmodule AgentJidoWeb.Components.Badge do
   attr :position, :string, default: "none", doc: "Determines the element position"
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
-  attr :size, :string,
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+  attr :size, :string, doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   defp badge_indicator(%{position: "left", rest: %{left_indicator: true}} = assigns) do
     ~H"""
@@ -953,8 +947,7 @@ defmodule AgentJidoWeb.Components.Badge do
       to: selector,
       time: 300,
       transition:
-        {"transition-all transform ease-out duration-300",
-         "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
+        {"transition-all transform ease-out duration-300", "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
          "opacity-100 translate-y-0 sm:scale-100"}
     )
   end
@@ -993,8 +986,7 @@ defmodule AgentJidoWeb.Components.Badge do
       to: selector,
       time: 200,
       transition:
-        {"transition-all transform ease-in duration-200",
-         "opacity-100 translate-y-0 sm:scale-100",
+        {"transition-all transform ease-in duration-200", "opacity-100 translate-y-0 sm:scale-100",
          "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"}
     )
   end

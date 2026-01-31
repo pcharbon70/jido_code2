@@ -67,8 +67,7 @@ defmodule AgentJidoWeb.Components.Pagination do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :space, :string, default: "small", doc: "Space between items"
   attr :color, :string, default: "base", doc: "Determines color theme"
@@ -140,12 +139,9 @@ defmodule AgentJidoWeb.Components.Pagination do
 
   attr :rest, :global,
     include: ~w(disabled hide_one_page show_edges hide_controls grouped),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
-  def pagination(
-        %{siblings: siblings, boundaries: boundaries, total: total, active: active} = assigns
-      ) do
+  def pagination(%{siblings: siblings, boundaries: boundaries, total: total, active: active} = assigns) do
     assigns = assign(assigns, %{siblings: build_pagination(total, active, siblings, boundaries)})
 
     ~H"""
@@ -532,31 +528,25 @@ defmodule AgentJidoWeb.Components.Pagination do
   defp border_class(params) when is_binary(params), do: params
 
   defp rounded_size("extra_small"),
-    do:
-      "[&.grouped-pagination]:rounded-sm [&:not(.grouped-pagination)_.pagination-button]:rounded-sm"
+    do: "[&.grouped-pagination]:rounded-sm [&:not(.grouped-pagination)_.pagination-button]:rounded-sm"
 
   defp rounded_size("small"),
     do: "[&.grouped-pagination]:rounded [&:not(.grouped-pagination)_.pagination-button]:rounded"
 
   defp rounded_size("medium"),
-    do:
-      "[&.grouped-pagination]:rounded-md [&:not(.grouped-pagination)_.pagination-button]:rounded-md"
+    do: "[&.grouped-pagination]:rounded-md [&:not(.grouped-pagination)_.pagination-button]:rounded-md"
 
   defp rounded_size("large"),
-    do:
-      "[&.grouped-pagination]:rounded-lg [&:not(.grouped-pagination)_.pagination-button]:rounded-lg"
+    do: "[&.grouped-pagination]:rounded-lg [&:not(.grouped-pagination)_.pagination-button]:rounded-lg"
 
   defp rounded_size("extra_large"),
-    do:
-      "[&.grouped-pagination]:rounded-xl [&:not(.grouped-pagination)_.pagination-button]:rounded-xl"
+    do: "[&.grouped-pagination]:rounded-xl [&:not(.grouped-pagination)_.pagination-button]:rounded-xl"
 
   defp rounded_size("full"),
-    do:
-      "[&.grouped-pagination]:rounded-full [&:not(.grouped-pagination)_.pagination-button]:rounded-full"
+    do: "[&.grouped-pagination]:rounded-full [&:not(.grouped-pagination)_.pagination-button]:rounded-full"
 
   defp rounded_size("none"),
-    do:
-      "[&.grouped-pagination]:rounded-none [&:not(.grouped-pagination)_.pagination-button]:rounded-none"
+    do: "[&.grouped-pagination]:rounded-none [&:not(.grouped-pagination)_.pagination-button]:rounded-none"
 
   defp size_class("extra_small") do
     [

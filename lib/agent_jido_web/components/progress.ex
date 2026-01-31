@@ -75,15 +75,13 @@ defmodule AgentJidoWeb.Components.Progress do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
   attr :csp_nonce, :string, default: nil, doc: "csp nonce"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, doc: "Inner block that renders HEEx label"
 
@@ -137,8 +135,7 @@ defmodule AgentJidoWeb.Components.Progress do
   attr :label, :string, default: nil, doc: "Optional label"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def semi_circle_progress(assigns) do
     coordinate = assigns.size / 2
@@ -263,8 +260,7 @@ defmodule AgentJidoWeb.Components.Progress do
     doc: "Controls the shape of the stroke ends. Use 'round' for rounded corners."
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def ring_progress(assigns) do
     radius = (assigns.size - assigns.thickness) / 2
@@ -355,8 +351,7 @@ defmodule AgentJidoWeb.Components.Progress do
   attr :csp_nonce, :string, default: nil, doc: "csp nonce"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :label, required: false do
     attr :class, :string, doc: "Custom CSS class for additional styling"

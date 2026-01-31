@@ -95,8 +95,7 @@ defmodule AgentJidoWeb.Components.Blockquote do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :space, :string, default: "small", doc: "Space between items"
 
@@ -127,8 +126,7 @@ defmodule AgentJidoWeb.Components.Blockquote do
 
   attr :rest, :global,
     include: ~w(left_border right_border hide_border full_border hide_icon),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def blockquote(assigns) do
     ~H"""

@@ -58,8 +58,7 @@ defmodule AgentJidoWeb.Components.Alert do
   attr :kind, :atom, default: :natural, doc: "used for styling and flash lookup"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   attr :variant, :string, default: "base", doc: "Determines the style"
   attr :position, :string, default: "", doc: "Determines the element position"
@@ -70,8 +69,7 @@ defmodule AgentJidoWeb.Components.Alert do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :rounded, :string, default: "small", doc: "Determines the border radius"
 
@@ -162,8 +160,7 @@ defmodule AgentJidoWeb.Components.Alert do
   attr :flash, :map, required: true, doc: "the map of flash messages"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def flash_group(assigns) do
     ~H"""
@@ -257,8 +254,7 @@ defmodule AgentJidoWeb.Components.Alert do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :rounded, :string, default: "small", doc: "Determines the border radius"
 
@@ -283,8 +279,7 @@ defmodule AgentJidoWeb.Components.Alert do
   slot :inner_block, doc: "Inner block that renders HEEx content"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def alert(assigns) do
     assigns = assigns |> assign_new(:id, fn -> "alert-#{random_id()}" end)
@@ -777,8 +772,7 @@ defmodule AgentJidoWeb.Components.Alert do
       to: selector,
       time: 300,
       transition:
-        {"transition-all transform ease-out duration-300",
-         "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
+        {"transition-all transform ease-out duration-300", "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
          "opacity-100 translate-y-0 sm:scale-100"}
     )
   end
@@ -817,8 +811,7 @@ defmodule AgentJidoWeb.Components.Alert do
       to: selector,
       time: 200,
       transition:
-        {"transition-all transform ease-in duration-200",
-         "opacity-100 translate-y-0 sm:scale-100",
+        {"transition-all transform ease-in duration-200", "opacity-100 translate-y-0 sm:scale-100",
          "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"}
     )
   end

@@ -67,16 +67,14 @@ defmodule AgentJidoWeb.Components.RangeField do
 
   attr :size, :string,
     default: "extra_small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :appearance, :string, default: "default", doc: "custom, default"
   attr :width, :string, default: "full", doc: "Determines the element width"
 
   attr :ring, :boolean,
     default: true,
-    doc:
-      "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
+    doc: "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
 
   attr :reverse, :boolean, default: false, doc: "Switches the order of the element and label"
   attr :checked, :boolean, default: false, doc: "Specifies if the element is checked by default"
@@ -90,8 +88,7 @@ defmodule AgentJidoWeb.Components.RangeField do
 
   attr :rest, :global,
     include: ~w(autocomplete disabled form readonly min max step required title autofocus),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :range_value, required: false do
     attr :class, :string, doc: "Custom CSS class for additional styling"

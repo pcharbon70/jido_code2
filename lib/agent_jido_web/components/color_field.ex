@@ -71,8 +71,7 @@ defmodule AgentJidoWeb.Components.ColorField do
 
   attr :size, :string,
     default: "extra_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :circle, :boolean,
     default: false,
@@ -90,8 +89,7 @@ defmodule AgentJidoWeb.Components.ColorField do
   attr :rest, :global,
     include: ~w(autocomplete disabled form list min max pattern placeholder
         readonly required size inputmode inputmode step title autofocus),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   @spec color_field(map()) :: Phoenix.LiveView.Rendered.t()
   def color_field(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do

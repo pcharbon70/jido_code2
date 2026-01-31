@@ -54,8 +54,7 @@ defmodule AgentJidoWeb.Components.Drawer do
 
   attr :size, :string,
     default: "large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :border, :string, default: "extra_small", doc: "Determines border style"
   attr :position, :string, default: "left", doc: "Determines the element position"
@@ -86,8 +85,7 @@ defmodule AgentJidoWeb.Components.Drawer do
   attr :show, :boolean, default: false, doc: "Show element"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :header, required: false, doc: "Specifies element's header that accepts heex"
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"

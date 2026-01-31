@@ -116,8 +116,7 @@ defmodule AgentJidoWeb.Components.Toast do
 
   attr :rest, :global,
     include: ~w(right_dismiss left_dismiss),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   attr :content_border, :string, default: "none", doc: "Determines the content border style"
   attr :border_position, :string, default: "start", doc: "Determines the border position style"
@@ -241,8 +240,7 @@ defmodule AgentJidoWeb.Components.Toast do
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -280,8 +278,7 @@ defmodule AgentJidoWeb.Components.Toast do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :params, :map,
     default: %{kind: "toast"},
@@ -870,8 +867,7 @@ defmodule AgentJidoWeb.Components.Toast do
       to: selector,
       time: 300,
       transition:
-        {"transition-all transform ease-out duration-300",
-         "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
+        {"transition-all transform ease-out duration-300", "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
          "opacity-100 translate-y-0 sm:scale-100"}
     )
   end
@@ -902,8 +898,7 @@ defmodule AgentJidoWeb.Components.Toast do
       to: selector,
       time: 200,
       transition:
-        {"transition-all transform ease-in duration-200",
-         "opacity-100 translate-y-0 sm:scale-100",
+        {"transition-all transform ease-in duration-200", "opacity-100 translate-y-0 sm:scale-100",
          "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"}
     )
   end

@@ -105,8 +105,7 @@ defmodule AgentJidoWeb.Components.Timeline do
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   attr :horizontal, :boolean, default: false, doc: "Determines whether element is horizontal"
 
@@ -192,8 +191,7 @@ defmodule AgentJidoWeb.Components.Timeline do
 
   attr :size, :string,
     default: "extra_small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :bullet_icon, :string, default: nil, doc: "Determines bullet icon"
   attr :image, :string, default: nil, doc: "Image displayed alongside of an item"
@@ -227,8 +225,7 @@ defmodule AgentJidoWeb.Components.Timeline do
     doc: "Custom CSS class for additional styling description"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 

@@ -51,16 +51,14 @@ defmodule AgentJidoWeb.Components.Indicator do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
   attr :color, :string, default: "base", doc: "Determines color theme"
 
   attr :rest, :global,
     include: ["pinging"] ++ @indicator_positions,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def indicator(%{rest: %{top_left: true}} = assigns) do
     ~H"""

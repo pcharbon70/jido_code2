@@ -33,6 +33,8 @@ defmodule AgentJidoWeb.Router do
     ash_authentication_live_session :authenticated_routes,
       on_mount: [{AgentJidoWeb.LiveUserAuth, :live_user_required}] do
       live "/dashboard", DashboardLive, :index
+      live "/settings", SettingsLive, :index
+      live "/settings/:tab", SettingsLive, :index
     end
 
     post "/rpc/run", AshTypescriptRpcController, :run

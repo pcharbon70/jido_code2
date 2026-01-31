@@ -42,8 +42,7 @@ defmodule AgentJidoWeb.Components.Stepper do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :margin, :string, default: "medium", doc: "Determines the element margin"
   attr :color, :string, default: "natural", doc: "Determines color theme"
@@ -66,8 +65,7 @@ defmodule AgentJidoWeb.Components.Stepper do
     doc: "Determines column step position alignment (start, end, center)"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -172,8 +170,7 @@ defmodule AgentJidoWeb.Components.Stepper do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :step, :string,
     values: ["none", "current", "loading", "completed", "canceled"],
@@ -194,8 +191,7 @@ defmodule AgentJidoWeb.Components.Stepper do
   attr :border, :string, default: "", doc: "Determines border style"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -216,8 +212,7 @@ defmodule AgentJidoWeb.Components.Stepper do
       {@rest}
     >
       <span class="block relative">
-        <span class={["stepper-separator block h-screen absolute start-1/2", @separator_class]}>
-        </span>
+        <span class={["stepper-separator block h-screen absolute start-1/2", @separator_class]}></span>
         <span
           :if={@icon}
           class={[

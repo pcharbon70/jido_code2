@@ -65,15 +65,13 @@ defmodule AgentJidoWeb.Components.Carousel do
 
   attr :size, :string,
     default: "large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :padding, :string, default: "medium", doc: "Determines padding for items"
   attr :text_position, :string, default: "center", doc: "Determines the element's text position"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   attr :indicator, :boolean, default: false, doc: "Specifies whether to show element indicators"
   attr :control, :boolean, default: true, doc: "Determines whether to show navigation controls"
@@ -102,8 +100,7 @@ defmodule AgentJidoWeb.Components.Carousel do
     attr :image, :string, doc: "Image displayed alongside of an item"
     attr :image_class, :string, doc: "Determines custom class for the image"
 
-    attr :navigate, :string,
-      doc: "Defines the path for navigation within the application using a `navigate` attribute."
+    attr :navigate, :string, doc: "Defines the path for navigation within the application using a `navigate` attribute."
 
     attr :patch, :string, doc: "Specifies the path for navigation using a LiveView patch."
     attr :href, :string, doc: "Sets the URL for an external link."

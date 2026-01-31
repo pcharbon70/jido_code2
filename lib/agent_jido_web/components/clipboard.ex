@@ -91,8 +91,7 @@ defmodule AgentJidoWeb.Components.Clipboard do
 
   attr :text, :string,
     default: nil,
-    doc:
-      "The text to copy to the clipboard. If not provided, it will look for the text content or target selector."
+    doc: "The text to copy to the clipboard. If not provided, it will look for the text content or target selector."
 
   attr :target_selector, :string,
     default: nil,
@@ -100,8 +99,7 @@ defmodule AgentJidoWeb.Components.Clipboard do
 
   attr :timeout, :integer,
     default: 2000,
-    doc:
-      "The timeout duration (in milliseconds) before the clipboard operation is considered failed."
+    doc: "The timeout duration (in milliseconds) before the clipboard operation is considered failed."
 
   attr :success_class, :string,
     default: "clipboard-success",
@@ -111,11 +109,9 @@ defmodule AgentJidoWeb.Components.Clipboard do
     default: "clipboard-error",
     doc: "CSS class applied to the component when the clipboard copy fails."
 
-  attr :copy_success_text, :string,
-    doc: "The success message to display after a successful copy operation."
+  attr :copy_success_text, :string, doc: "The success message to display after a successful copy operation."
 
-  attr :copy_error_text, :string,
-    doc: "The error message to display after a failed copy operation."
+  attr :copy_error_text, :string, doc: "The error message to display after a failed copy operation."
 
   attr :copy_button_label, :string,
     default: nil,
@@ -123,8 +119,7 @@ defmodule AgentJidoWeb.Components.Clipboard do
 
   attr :text_description, :string,
     default: nil,
-    doc:
-      "Optional description text for screen readers, providing more context about the clipboard functionality."
+    doc: "Optional description text for screen readers, providing more context about the clipboard functionality."
 
   attr :status_class, :string,
     default: "block mt-2",
@@ -144,23 +139,19 @@ defmodule AgentJidoWeb.Components.Clipboard do
 
   attr :dynamic_label, :boolean,
     default: false,
-    doc:
-      "If true, replaces text inside `.clipboard-label` on copy success/failure. Default: false."
+    doc: "If true, replaces text inside `.clipboard-label` on copy success/failure. Default: false."
 
   slot :content, doc: "Slot for custom content to display inside the clipboard container."
 
   slot :trigger,
     required: true,
-    doc:
-      "The slot for the button or trigger element that initiates the copy operation. This is a required slot."
+    doc: "The slot for the button or trigger element that initiates the copy operation. This is a required slot."
 
   slot :inner_block,
-    doc:
-      "Slot for additional content or inner components that should be rendered inside the clipboard container."
+    doc: "Slot for additional content or inner components that should be rendered inside the clipboard container."
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def clipboard(assigns) do
     assigns =

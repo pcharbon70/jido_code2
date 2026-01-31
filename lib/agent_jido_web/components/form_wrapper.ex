@@ -52,16 +52,14 @@ defmodule AgentJidoWeb.Components.FormWrapper do
 
   attr :size, :string,
     default: "",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :for, :any, required: false, doc: "the data structure for the form"
   attr :as, :any, default: nil, doc: "the server side parameter to collect all input under"
 
   attr :rest, :global,
     include: ~w(autocomplete name rel action enctype method novalidate target multipart),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
   slot :actions, required: false, doc: "the slot for form actions, such as a submit button"

@@ -48,8 +48,7 @@ defmodule AgentJidoWeb.Components.Sidebar do
 
   attr :size, :string,
     default: "large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :border, :string, default: "extra_small", doc: "Determines border style"
 
@@ -88,8 +87,7 @@ defmodule AgentJidoWeb.Components.Sidebar do
   attr :on_hide_away, JS, default: %JS{}, doc: "Custom JS module for on_hide_away action"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :item, doc: "Menu item slot for sidebar navigation items" do
     attr :icon, :string, doc: "Icon name to display"

@@ -134,8 +134,7 @@ defmodule AgentJidoWeb.Components.Navbar do
   attr :list_class, :string, default: nil, doc: "Custom CSS class for list ul"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :start_content, required: false do
     attr :class, :string, doc: "Custom CSS class for additional styling"

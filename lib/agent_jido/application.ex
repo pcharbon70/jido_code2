@@ -12,9 +12,7 @@ defmodule AgentJido.Application do
       AgentJido.Repo,
       {DNSCluster, query: Application.get_env(:agent_jido, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: AgentJido.PubSub},
-      # Start a worker by calling: AgentJido.Worker.start_link(arg)
-      # {AgentJido.Worker, arg},
-      # Start to serve requests, typically the last entry
+      AgentJido.Jido,
       AgentJidoWeb.Endpoint,
       {AshAuthentication.Supervisor, [otp_app: :agent_jido]}
     ]

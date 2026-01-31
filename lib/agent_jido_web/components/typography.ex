@@ -36,8 +36,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "quadruple_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -46,8 +45,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -90,8 +88,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "triple_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -100,8 +97,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -144,8 +140,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "double_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -154,8 +149,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -197,8 +191,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "extra_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -207,8 +200,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -251,8 +243,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -261,8 +252,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -304,8 +294,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -314,8 +303,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -359,8 +347,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -369,8 +356,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -415,8 +401,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -425,8 +410,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -475,8 +459,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -485,8 +468,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -531,8 +513,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -541,8 +522,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -585,8 +565,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -595,8 +574,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -643,8 +621,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -653,8 +630,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -710,8 +686,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -720,8 +695,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -772,8 +746,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -782,8 +755,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -828,8 +800,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -838,8 +809,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -881,8 +851,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string,
     default: "p-0.5 bg-rose-200",
@@ -893,8 +862,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -936,8 +904,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -946,8 +913,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -987,8 +953,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -997,8 +962,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -1039,8 +1003,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -1049,8 +1012,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -1094,8 +1056,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -1104,8 +1065,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 
@@ -1146,8 +1106,7 @@ defmodule AgentJidoWeb.Components.Typography do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
@@ -1156,8 +1115,7 @@ defmodule AgentJidoWeb.Components.Typography do
     doc: "Determines custom class for the font weight"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 

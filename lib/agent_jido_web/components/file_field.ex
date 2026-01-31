@@ -55,8 +55,7 @@ defmodule AgentJidoWeb.Components.FileField do
 
   attr :size, :string,
     default: "extra_small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :label, :string, default: nil, doc: "Specifies text for the label"
   attr :dashed, :boolean, default: true, doc: "Determines dashed border"
@@ -76,10 +75,8 @@ defmodule AgentJidoWeb.Components.FileField do
   attr :field, Phoenix.HTML.FormField, doc: "a form field struct retrieved from the form"
 
   attr :rest, :global,
-    include:
-      ~w(autocomplete disabled form checked multiple readonly min max step required title autofocus),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    include: ~w(autocomplete disabled form checked multiple readonly min max step required title autofocus),
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   @spec file_field(map()) :: Phoenix.LiveView.Rendered.t()
   def file_field(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do

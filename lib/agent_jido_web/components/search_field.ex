@@ -84,13 +84,11 @@ defmodule AgentJidoWeb.Components.SearchField do
 
   attr :size, :string,
     default: "extra_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :ring, :boolean,
     default: true,
-    doc:
-      "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
+    doc: "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
 
   attr :search_button, :boolean, default: false, doc: "Specifies search button"
   attr :floating, :string, default: "none", doc: "none, inner, outer"
@@ -116,8 +114,7 @@ defmodule AgentJidoWeb.Components.SearchField do
   attr :rest, :global,
     include: ~w(autocomplete disabled form list maxlength minlength pattern placeholder
         readonly required size spellcheck inputmode title autofocus),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   @spec search_field(map()) :: Phoenix.LiveView.Rendered.t()
   def search_field(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do

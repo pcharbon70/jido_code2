@@ -82,8 +82,7 @@ defmodule AgentJidoWeb.Components.SpeedDial do
 
   attr :size, :string,
     default: "medium",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :color, :string, default: "natural", doc: "Determines color theme"
   attr :variant, :string, default: "base", doc: "Determines the style"
@@ -103,15 +102,13 @@ defmodule AgentJidoWeb.Components.SpeedDial do
     doc: "Determines whether element's icon has animation"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :item, required: false, doc: "Specifies item slot of a speed dial" do
     attr :icon, :string, doc: "Icon displayed alongside of an item"
     attr :class, :string, doc: "Custom CSS class for additional styling"
 
-    attr :navigate, :string,
-      doc: "Defines the path for navigation within the application using a `navigate` attribute."
+    attr :navigate, :string, doc: "Defines the path for navigation within the application using a `navigate` attribute."
 
     attr :patch, :string, doc: "Specifies the path for navigation using a LiveView patch."
     attr :href, :string, doc: "Sets the URL for an external link."

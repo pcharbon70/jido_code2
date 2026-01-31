@@ -93,8 +93,7 @@ defmodule AgentJidoWeb.Components.Video do
 
   attr :rest, :global,
     include: ~w(controls autoplay loop muted preload),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :source, required: true, doc: "Determines media source" do
     attr :src, :string, required: true, doc: "Media link"
@@ -198,16 +197,13 @@ defmodule AgentJidoWeb.Components.Video do
     do: "[&::cue]:bg-[linear-gradient(white,white)] [&::cue]:text-default-dark-bg"
 
   defp caption_background("natural"),
-    do:
-      "[&::cue]:bg-[linear-gradient(var(--color-natural-light),var(--color-natural-light))] [&::cue]:text-white"
+    do: "[&::cue]:bg-[linear-gradient(var(--color-natural-light),var(--color-natural-light))] [&::cue]:text-white"
 
   defp caption_background("primary"),
-    do:
-      "[&::cue]:bg-[linear-gradient(var(--color-primary-light),var(--color-primary-light))] [&::cue]:text-white"
+    do: "[&::cue]:bg-[linear-gradient(var(--color-primary-light),var(--color-primary-light))] [&::cue]:text-white"
 
   defp caption_background("secondary"),
-    do:
-      "[&::cue]:bg-[linear-gradient(var(--color-secondary-light),var(--color-secondary-light))] [&::cue]:text-white"
+    do: "[&::cue]:bg-[linear-gradient(var(--color-secondary-light),var(--color-secondary-light))] [&::cue]:text-white"
 
   defp caption_background("success"),
     do:
@@ -222,24 +218,20 @@ defmodule AgentJidoWeb.Components.Video do
       "[&::cue]:bg-[linear-gradient(var(--color-danger-light),var(--color-danger-light))] [&::cue]:text-default-dark-bg"
 
   defp caption_background("info"),
-    do:
-      "[&::cue]:bg-[linear-gradient(var(--color-info-light),var(--color-info-light))] [&::cue]:text-default-dark-bg"
+    do: "[&::cue]:bg-[linear-gradient(var(--color-info-light),var(--color-info-light))] [&::cue]:text-default-dark-bg"
 
   defp caption_background("misc"),
-    do:
-      "[&::cue]:bg-[linear-gradient(var(--color-misc-light),var(--color-misc-light))] [&::cue]:text-default-dark-bg"
+    do: "[&::cue]:bg-[linear-gradient(var(--color-misc-light),var(--color-misc-light))] [&::cue]:text-default-dark-bg"
 
   defp caption_background("dawn"),
-    do:
-      "[&::cue]:bg-[linear-gradient(var(--color-dawn-light),var(--color-dawn-light))] [&::cue]:text-default-dark-bg"
+    do: "[&::cue]:bg-[linear-gradient(var(--color-dawn-light),var(--color-dawn-light))] [&::cue]:text-default-dark-bg"
 
   defp caption_background("silver"),
     do:
       "[&::cue]:bg-[linear-gradient(var(--color-silver-light),var(--color-silver-light))] [&::cue]:text-default-dark-bg"
 
   defp caption_background("dark"),
-    do:
-      "[&::cue]:bg-[linear-gradient(var(--color-default-dark-bg),var(--color-default-dark-bg))] [&::cue]:text-white"
+    do: "[&::cue]:bg-[linear-gradient(var(--color-default-dark-bg),var(--color-default-dark-bg))] [&::cue]:text-white"
 
   defp caption_background(params) when is_binary(params), do: params
 

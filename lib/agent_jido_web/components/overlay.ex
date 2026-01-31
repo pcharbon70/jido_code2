@@ -45,12 +45,10 @@ defmodule AgentJidoWeb.Components.Overlay do
 
   attr :z_index, :string,
     default: "z-50",
-    doc:
-      "Utility class for controlling the z-index stacking order of the overlay (e.g., 'z-10', 'z-50')."
+    doc: "Utility class for controlling the z-index stacking order of the overlay (e.g., 'z-10', 'z-50')."
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 

@@ -69,8 +69,7 @@ defmodule AgentJidoWeb.Components.CheckboxCard do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :error_icon, :string, default: nil, doc: "Icon to be displayed alongside error messages"
   attr :errors, :list, default: [], doc: "List of error messages to be displayed"
@@ -78,10 +77,8 @@ defmodule AgentJidoWeb.Components.CheckboxCard do
   attr :value, :any, doc: "Value of input"
 
   attr :rest, :global,
-    include:
-      ~w(autocomplete disabled form indeterminate multiple readonly required title autofocus),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    include: ~w(autocomplete disabled form indeterminate multiple readonly required title autofocus),
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   attr :field, Phoenix.HTML.FormField, doc: "a form field struct retrieved from the form"
 
@@ -243,9 +240,7 @@ defmodule AgentJidoWeb.Components.CheckboxCard do
   defp error(assigns) do
     ~H"""
     <p class="mt-3 flex items-center gap-3 text-[14px] text-rose-700">
-      <.icon :if={!is_nil(@icon)} name={@icon} class={["shrink-0", @error_icon_class]} /> {render_slot(
-        @inner_block
-      )}
+      <.icon :if={!is_nil(@icon)} name={@icon} class={["shrink-0", @error_icon_class]} /> {render_slot(@inner_block)}
     </p>
     """
   end

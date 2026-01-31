@@ -79,13 +79,11 @@ defmodule AgentJidoWeb.Components.NativeSelect do
 
   attr :size, :string,
     default: "extra_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :ring, :boolean,
     default: true,
-    doc:
-      "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
+    doc: "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
 
   attr :error_icon, :string, default: nil, doc: "Icon to be displayed alongside error messages"
   attr :label, :string, default: nil, doc: "Specifies text for the label"
@@ -109,8 +107,7 @@ defmodule AgentJidoWeb.Components.NativeSelect do
 
   attr :rest, :global,
     include: ~w(autocomplete disabled form readonly multiple required title autofocus tabindex),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   @spec native_select(map()) :: Phoenix.LiveView.Rendered.t()
   def native_select(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do

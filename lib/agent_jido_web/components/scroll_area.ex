@@ -42,8 +42,7 @@ defmodule AgentJidoWeb.Components.ScrollArea do
     doc: "Custom CSS class for height of scrollbar x"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: true, doc: "Inner block that renders HEEx content"
 

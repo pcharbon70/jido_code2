@@ -129,8 +129,7 @@ defmodule AgentJidoWeb.Components.MegaMenu do
 
   attr :size, :string,
     default: "",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :space, :string, default: "", doc: "Space between items"
   attr :width, :string, default: "full", doc: "Determines the element width"
@@ -150,8 +149,7 @@ defmodule AgentJidoWeb.Components.MegaMenu do
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -242,8 +240,7 @@ defmodule AgentJidoWeb.Components.MegaMenu do
   defp width_size("full"), do: "[&>.mega-menu-content]:w-full"
 
   defp width_size("half"),
-    do:
-      "[&>.mega-menu-content]:w-full md:[&>.mega-menu-content]:w-1/2 md:[&>.mega-menu-content]:mx-auto"
+    do: "[&>.mega-menu-content]:w-full md:[&>.mega-menu-content]:w-1/2 md:[&>.mega-menu-content]:mx-auto"
 
   defp width_size(params) when is_binary(params), do: params
 

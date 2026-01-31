@@ -127,8 +127,7 @@ defmodule AgentJidoWeb.Components.Combobox do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   slot :option, required: false do
     attr :value, :string, required: true, doc: "Value of the select option"
@@ -140,8 +139,7 @@ defmodule AgentJidoWeb.Components.Combobox do
   attr :rest, :global,
     include: ~w(accept autocomplete capture cols disabled form list max maxlength min minlength
                 multiple pattern placeholder readonly required rows size step),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def combobox(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     errors = if Phoenix.Component.used_input?(field), do: field.errors, else: []
@@ -1223,24 +1221,19 @@ defmodule AgentJidoWeb.Components.Combobox do
   defp dropdown_search_input_rounded(params) when is_binary(params), do: params
 
   defp dropdown_size("extra_small"),
-    do:
-      "[&_.combobox-search-input]:h-6 [&_.combobox-search-input]:text-[12px] [&_.combobox-option]:text-[12px]"
+    do: "[&_.combobox-search-input]:h-6 [&_.combobox-search-input]:text-[12px] [&_.combobox-option]:text-[12px]"
 
   defp dropdown_size("small"),
-    do:
-      "[&_.combobox-search-input]:h-7 [&_.combobox-search-input]:text-[13px] [&_.combobox-option]:text-[13px]"
+    do: "[&_.combobox-search-input]:h-7 [&_.combobox-search-input]:text-[13px] [&_.combobox-option]:text-[13px]"
 
   defp dropdown_size("medium"),
-    do:
-      "[&_.combobox-search-input]:h-8 [&_.combobox-search-input]:text-[14px] [&_.combobox-option]:text-[14px]"
+    do: "[&_.combobox-search-input]:h-8 [&_.combobox-search-input]:text-[14px] [&_.combobox-option]:text-[14px]"
 
   defp dropdown_size("large"),
-    do:
-      "[&_.combobox-search-input]:h-9 [&_.combobox-search-input]:text-[15px] [&_.combobox-option]:text-[15px]"
+    do: "[&_.combobox-search-input]:h-9 [&_.combobox-search-input]:text-[15px] [&_.combobox-option]:text-[15px]"
 
   defp dropdown_size("extra_large"),
-    do:
-      "[&_.combobox-search-input]:h-10 [&_.combobox-search-input]:text-[16px] [&_.combobox-option]:text-[16px]"
+    do: "[&_.combobox-search-input]:h-10 [&_.combobox-search-input]:text-[16px] [&_.combobox-option]:text-[16px]"
 
   defp dropdown_size(params) when is_binary(params), do: params
 

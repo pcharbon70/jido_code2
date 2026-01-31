@@ -48,8 +48,7 @@ defmodule AgentJidoWeb.Components.Keyboard do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :rounded, :string, default: "small", doc: "Determines the border radius"
 
@@ -60,8 +59,7 @@ defmodule AgentJidoWeb.Components.Keyboard do
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 

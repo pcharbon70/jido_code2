@@ -348,12 +348,10 @@ defmodule AgentJidoWeb.Components.Menu do
   attr :padding, :string, default: "small", doc: "Determines padding for items"
 
   slot :inner_block,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def menu(assigns) do
     ~H"""

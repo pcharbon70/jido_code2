@@ -78,13 +78,11 @@ defmodule AgentJidoWeb.Components.NumberField do
 
   attr :size, :string,
     default: "extra_large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :ring, :boolean,
     default: true,
-    doc:
-      "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
+    doc: "Determines a ring border on focused input, utilities for creating outline rings with box-shadows."
 
   attr :controls, :string, default: "default", doc: "fixed, hide, default"
   attr :floating, :string, default: "none", doc: "none, inner, outer"
@@ -110,8 +108,7 @@ defmodule AgentJidoWeb.Components.NumberField do
   attr :rest, :global,
     include: ~w(autocomplete disabled form list min max pattern placeholder
         readonly required size inputmode inputmode step title autofocus),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   @spec number_field(map()) :: Phoenix.LiveView.Rendered.t()
   def number_field(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
@@ -307,8 +304,7 @@ defmodule AgentJidoWeb.Components.NumberField do
     do: "[&_.number-field-wrapper_input]:h-8 [&_.number-field-wrapper_.number-field-icon]:size-3"
 
   defp size_class("small"),
-    do:
-      "[&_.number-field-wrapper_input]:h-9 [&_.number-field-wrapper_.number-field-icon]:size-3.5"
+    do: "[&_.number-field-wrapper_input]:h-9 [&_.number-field-wrapper_.number-field-icon]:size-3.5"
 
   defp size_class("medium"),
     do: "[&_.number-field-wrapper_input]:h-10 [&_.number-field-wrapper_.number-field-icon]:size-4"

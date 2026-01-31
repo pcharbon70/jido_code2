@@ -43,8 +43,7 @@ defmodule AgentJidoWeb.Components.Rating do
 
   attr :size, :string,
     default: "small",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :color, :string, default: "warning", doc: "Determines color theme"
   attr :count, :integer, default: 5, doc: "Number of stars to display"
@@ -61,8 +60,7 @@ defmodule AgentJidoWeb.Components.Rating do
     doc: "If true, stars are wrapped in a button for selecting a rating"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def rating(assigns) do
     ~H"""
@@ -107,8 +105,7 @@ defmodule AgentJidoWeb.Components.Rating do
                   <linearGradient id={"star-fill-#{@id}-#{item}"} x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stop-color="currentColor"></stop>
                     <stop offset={"#{fill_percentage}%"} stop-color="currentColor"></stop>
-                    <stop offset={"#{fill_percentage}%"} stop-color="currentColor" stop-opacity="0.2">
-                    </stop>
+                    <stop offset={"#{fill_percentage}%"} stop-color="currentColor" stop-opacity="0.2"></stop>
                     <stop offset="100%" stop-color="currentColor" stop-opacity="0.2"></stop>
                   </linearGradient>
                 </defs>
@@ -146,8 +143,7 @@ defmodule AgentJidoWeb.Components.Rating do
                 <linearGradient id={"star-fill-#{@id}-#{item}"} x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%" stop-color="currentColor"></stop>
                   <stop offset={"#{fill_percentage}%"} stop-color="currentColor"></stop>
-                  <stop offset={"#{fill_percentage}%"} stop-color="currentColor" stop-opacity="0.2">
-                  </stop>
+                  <stop offset={"#{fill_percentage}%"} stop-color="currentColor" stop-opacity="0.2"></stop>
                   <stop offset="100%" stop-color="currentColor" stop-opacity="0.2"></stop>
                 </linearGradient>
               </defs>

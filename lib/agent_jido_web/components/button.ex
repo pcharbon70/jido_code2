@@ -88,8 +88,7 @@ defmodule AgentJidoWeb.Components.Button do
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -144,8 +143,7 @@ defmodule AgentJidoWeb.Components.Button do
 
   attr :size, :string,
     default: "large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :content_position, :string,
     default: "center",
@@ -180,8 +178,7 @@ defmodule AgentJidoWeb.Components.Button do
     include:
       ~w(disabled form name value right_icon left_icon pinging circle download) ++
         @indicator_positions,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -266,8 +263,7 @@ defmodule AgentJidoWeb.Components.Button do
 
   attr :size, :string,
     default: "large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :type, :string, default: "button", doc: "Determines type of input"
   attr :line_height, :string, default: "leading-5", doc: "Line height"
@@ -289,8 +285,7 @@ defmodule AgentJidoWeb.Components.Button do
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def input_button(assigns) do
     ~H"""
@@ -340,8 +335,7 @@ defmodule AgentJidoWeb.Components.Button do
 
   attr :title, :string, default: nil, doc: "Specifies the title of the element"
 
-  attr :navigate, :string,
-    doc: "Defines the path for navigation within the application using a `navigate` attribute."
+  attr :navigate, :string, doc: "Defines the path for navigation within the application using a `navigate` attribute."
 
   attr :patch, :string, doc: "Specifies the path for navigation using a LiveView patch"
   attr :href, :string, doc: "Sets the URL for an external link"
@@ -352,8 +346,7 @@ defmodule AgentJidoWeb.Components.Button do
 
   attr :size, :string,
     default: "large",
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+    doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
   attr :content_class, :string, default: "block", doc: "Custom CSS class for additional styling"
@@ -384,8 +377,7 @@ defmodule AgentJidoWeb.Components.Button do
     include:
       ~w(right_icon left_icon pinging circle download hreflang referrerpolicy rel target type csrf_token method replace download) ++
         @indicator_positions,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   slot :inner_block, required: false, doc: "Inner block that renders HEEx content"
 
@@ -556,13 +548,10 @@ defmodule AgentJidoWeb.Components.Button do
   attr :position, :string, default: "none", doc: "Determines the element position"
   attr :class, :string, default: nil, doc: "Custom CSS class for additional styling"
 
-  attr :size, :string,
-    doc:
-      "Determines the overall size of the elements, including padding, font size, and other items"
+  attr :size, :string, doc: "Determines the overall size of the elements, including padding, font size, and other items"
 
   attr :rest, :global,
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   defp button_indicator(%{position: "left", rest: %{left_indicator: true}} = assigns) do
     ~H"""

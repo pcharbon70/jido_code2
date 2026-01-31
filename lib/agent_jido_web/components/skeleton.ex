@@ -63,8 +63,7 @@ defmodule AgentJidoWeb.Components.Skeleton do
 
   attr :rest, :global,
     include: ~w(animated),
-    doc:
-      "Global attributes can define defaults which are merged with attributes provided by the caller"
+    doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   def skeleton(assigns) do
     ~H"""

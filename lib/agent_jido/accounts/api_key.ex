@@ -17,8 +17,7 @@ defmodule AgentJido.Accounts.ApiKey do
       primary? true
       accept [:user_id, :expires_at]
 
-      change {AshAuthentication.Strategy.ApiKey.GenerateApiKey,
-              prefix: :agentjido, hash: :api_key_hash}
+      change {AshAuthentication.Strategy.ApiKey.GenerateApiKey, prefix: :agentjido, hash: :api_key_hash}
     end
   end
 
