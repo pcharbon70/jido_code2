@@ -59,6 +59,11 @@ if config_env() == :prod do
 
   config :agent_jido, AgentJidoWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
+    check_origin: [
+      "https://#{host}",
+      "https://jidoeboss-prod.fly.dev"
+    ],
+    force_ssl: [hsts: true, host: host, rewrite_on: [:x_forwarded_proto]],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
