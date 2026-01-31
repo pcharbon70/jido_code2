@@ -41,36 +41,43 @@ defmodule AgentJido.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:bcrypt_elixir, "~> 3.0"},
-      {:picosat_elixir, "~> 0.2"},
-      {:sourceror, "~> 1.8", only: [:dev, :test]},
-      {:open_api_spex, "~> 3.0"},
-      {:ash_typescript, "~> 0.12"},
-      {:usage_rules, "~> 0.1", only: [:dev]},
-      {:ash_cloak, "~> 0.2"},
-      {:cloak, "~> 1.0"},
-      {:ash_paper_trail, "~> 0.5"},
-      {:tidewave, "~> 0.5", only: [:dev]},
-      {:mishka_chelekom, "~> 0.0", only: [:dev]},
-      {:live_debugger, "~> 0.5", only: [:dev]},
-      {:ash_archival, "~> 2.0"},
-      {:ash_admin, "~> 0.13"},
-      {:ash_authentication_phoenix, "~> 2.0"},
-      {:ash_authentication, "~> 4.0"},
-      {:ash_postgres, "~> 2.0"},
-      {:ash_json_api, "~> 1.0"},
-      {:ash_phoenix, "~> 2.0"},
-      {:ash, "~> 3.0"},
-      {:igniter, "~> 0.6", only: [:dev, :test]},
+      # Core framework
       {:phoenix, "~> 1.8.3"},
       {:phoenix_ecto, "~> 4.5"},
+      {:phoenix_html, "~> 4.1"},
+      {:phoenix_live_view, "~> 1.1.0"},
+      {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:bandit, "~> 1.5"},
+
+      # Ash framework and extensions
+      {:ash, "~> 3.0"},
+      {:ash_phoenix, "~> 2.0"},
+      {:ash_postgres, "~> 2.0"},
+      {:ash_json_api, "~> 1.0"},
+      {:ash_authentication, "~> 4.0"},
+      {:ash_authentication_phoenix, "~> 2.0"},
+      {:ash_admin, "~> 0.13"},
+      {:ash_archival, "~> 2.0"},
+      {:ash_paper_trail, "~> 0.5"},
+      {:ash_cloak, "~> 0.2"},
+      {:ash_typescript, "~> 0.12"},
+
+      # Database
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
-      {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:phoenix_live_view, "~> 1.1.0"},
-      {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
+
+      # Security & encryption
+      {:bcrypt_elixir, "~> 3.0"},
+      {:cloak, "~> 1.0"},
+
+      # HTTP & API
+      {:req, "~> 0.5"},
+      {:open_api_spex, "~> 3.0"},
+
+      # Email
+      {:swoosh, "~> 1.16"},
+
+      # Frontend assets
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
       {:heroicons,
@@ -80,14 +87,26 @@ defmodule AgentJido.MixProject do
        app: false,
        compile: false,
        depth: 1},
-      {:swoosh, "~> 1.16"},
-      {:req, "~> 0.5"},
+      {:phoenix_live_reload, "~> 1.2", only: :dev},
+
+      # Observability & monitoring
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 1.0"},
-      {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+
+      # Utilities
+      {:jason, "~> 1.2"},
+      {:gettext, "~> 1.0"},
+      {:picosat_elixir, "~> 0.2"},
+
+      # Development & testing
+      {:igniter, "~> 0.6", only: [:dev, :test]},
+      {:sourceror, "~> 1.8", only: [:dev, :test]},
+      {:lazy_html, ">= 0.1.0", only: :test},
+      {:usage_rules, "~> 0.1", only: [:dev]},
+      {:tidewave, "~> 0.5", only: [:dev]},
+      {:mishka_chelekom, "~> 0.0", only: [:dev]},
+      {:live_debugger, "~> 0.5", only: [:dev]}
     ]
   end
 
