@@ -45,6 +45,9 @@ defmodule AgentJidoWeb.Layouts do
             <.link navigate={~p"/dashboard"} class="btn btn-ghost btn-sm">Dashboard</.link>
           </li>
           <li>
+            <.link navigate={~p"/forge"} class="btn btn-ghost btn-sm">Forge</.link>
+          </li>
+          <li>
             <.link navigate={~p"/settings"} class="btn btn-ghost btn-sm">Settings</.link>
           </li>
           <li>

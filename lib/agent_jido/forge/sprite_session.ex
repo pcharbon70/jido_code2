@@ -87,6 +87,7 @@ defmodule AgentJido.Forge.SpriteSession do
   def init({session_id, spec, opts}) do
     runner_type = Map.get(spec, :runner, :shell)
     runner = resolve_runner(runner_type)
+    sprite_client = resolve_sprite_client(Map.get(spec, :sprite_client, :default))
 
     state = %__MODULE__{
       session_id: session_id,
@@ -101,6 +102,9 @@ defmodule AgentJido.Forge.SpriteSession do
       last_activity: DateTime.utc_now()
     }
 
+    # Store the resolved sprite client module in the process dictionary
+    Process.put(:sprite_client_module, sprite_client)
+
     send(self(), :provision)
     {:ok, state}
   end
@@ -108,8 +112,9 @@ defmodule AgentJido.Forge.SpriteSession do
   @impl true
   def handle_info(:provision, state) do
     sprite_spec = Map.get(state.spec, :sprite, %{})
+    sprite_client = Process.get(:sprite_client_module, SpriteClient)
 
-    case SpriteClient.create(sprite_spec) do
+    case sprite_client.create(sprite_spec) do
       {:ok, client, sprite_id} ->
         Logger.debug("Provisioned sprite #{sprite_id} for session #{state.session_id}")
 
@@ -133,12 +138,13 @@ defmodule AgentJido.Forge.SpriteSession do
 
   def handle_info(:bootstrap, state) do
     env = Map.get(state.spec, :env, %{})
+    sprite_client = Process.get(:sprite_client_module, SpriteClient)
 
-    case SpriteClient.inject_env(state.client, env) do
+    case sprite_client.inject_env(state.client, env) do
       :ok ->
         bootstrap_steps = Map.get(state.spec, :bootstrap, [])
 
-        case Bootstrap.execute(state.client, bootstrap_steps, sprite_id: state.sprite_id) do
+        case Bootstrap.execute(state.client, bootstrap_steps, sprite_client: sprite_client, sprite_id: state.sprite_id) do
           :ok ->
             Logger.debug("Bootstrap complete for session #{state.session_id}")
 
@@ -214,7 +220,8 @@ defmodule AgentJido.Forge.SpriteSession do
   end
 
   def handle_call({:exec, command, opts}, _from, %{state: :ready} = state) do
-    result = SpriteClient.exec(state.client, command, opts)
+    sprite_client = Process.get(:sprite_client_module, SpriteClient)
+    result = sprite_client.exec(state.client, command, opts)
 
     new_state = %{state | last_activity: DateTime.utc_now()}
     {:reply, result, new_state}
@@ -294,7 +301,8 @@ defmodule AgentJido.Forge.SpriteSession do
     end
 
     if state.client && state.sprite_id do
-      SpriteClient.destroy(state.client, state.sprite_id)
+      sprite_client = Process.get(:sprite_client_module, SpriteClient)
+      sprite_client.destroy(state.client, state.sprite_id)
     end
 
     :ok
@@ -311,6 +319,11 @@ defmodule AgentJido.Forge.SpriteSession do
   defp resolve_runner(:workflow), do: AgentJido.Forge.Runners.Workflow
   defp resolve_runner(:custom), do: AgentJido.Forge.Runners.Custom
   defp resolve_runner(module) when is_atom(module), do: module
+
+  defp resolve_sprite_client(:default), do: SpriteClient
+  defp resolve_sprite_client(:fake), do: AgentJido.Forge.SpriteClient.Fake
+  defp resolve_sprite_client(:live), do: AgentJido.Forge.SpriteClient.Live
+  defp resolve_sprite_client(module) when is_atom(module), do: module
 
   defp notify_status(state) do
     status = %{

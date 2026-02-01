@@ -21,6 +21,7 @@ defmodule AgentJido.Forge.Bootstrap do
 
   ## Options
 
+    * `:sprite_client` - The sprite client module to use (defaults to AgentJido.Forge.SpriteClient)
     * `:sprite_id` - The sprite identifier for command execution
     * `:on_step` - Optional callback `fn step, index -> :ok end` called before each step
 
@@ -62,7 +63,9 @@ defmodule AgentJido.Forge.Bootstrap do
   def execute_step(client, %{type: "exec", command: command} = step, opts) do
     Logger.debug("Executing bootstrap command: #{command}")
 
-    case AgentJido.Forge.SpriteClient.exec(client, command, opts) do
+    sprite_client = Keyword.get(opts, :sprite_client, AgentJido.Forge.SpriteClient)
+
+    case sprite_client.exec(client, command, opts) do
       {_output, 0} ->
         :ok
 
@@ -71,10 +74,12 @@ defmodule AgentJido.Forge.Bootstrap do
     end
   end
 
-  def execute_step(client, %{type: "file", path: path, content: content}, _opts) do
+  def execute_step(client, %{type: "file", path: path, content: content}, opts) do
     Logger.debug("Writing bootstrap file: #{path}")
 
-    case AgentJido.Forge.SpriteClient.write_file(client, path, content) do
+    sprite_client = Keyword.get(opts, :sprite_client, AgentJido.Forge.SpriteClient)
+
+    case sprite_client.write_file(client, path, content) do
       :ok -> :ok
       {:error, reason} -> {:error, {:write_failed, path, reason}}
     end

@@ -168,6 +168,53 @@ defmodule AgentJido.Forge.SpriteClient.Live do
     end
   end
 
+  @doc """
+  List all sprites from the Sprites API.
+  Returns {:ok, [sprite_info]} or {:error, reason}.
+  """
+  def list_sprites(opts \\ []) do
+    token = get_token()
+
+    if is_nil(token) or token == "" do
+      {:error, :missing_sprites_token}
+    else
+      base_url = get_base_url()
+      client_opts = if base_url, do: [base_url: base_url], else: []
+      client = Sprites.new(token, client_opts)
+
+      case Sprites.list(client, opts) do
+        {:ok, sprites} -> {:ok, sprites}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Destroy a sprite by name directly (without a client struct).
+  """
+  def destroy_by_name(sprite_name) do
+    token = get_token()
+
+    if is_nil(token) or token == "" do
+      {:error, :missing_sprites_token}
+    else
+      base_url = get_base_url()
+      client_opts = if base_url, do: [base_url: base_url], else: []
+      client = Sprites.new(token, client_opts)
+
+      # Sprites.sprite/2 returns a sprite struct directly
+      sprite = Sprites.sprite(client, sprite_name)
+
+      case Sprites.destroy(sprite) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
   # Private helpers
 
   defp get_token do

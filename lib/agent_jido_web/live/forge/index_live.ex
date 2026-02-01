@@ -3,19 +3,24 @@ defmodule AgentJidoWeb.Forge.IndexLive do
 
   alias AgentJido.Forge
   alias AgentJido.Forge.PubSub, as: ForgePubSub
+  alias AgentJido.Forge.SpriteClient.Live, as: LiveClient
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       ForgePubSub.subscribe_sessions()
+      schedule_refresh()
     end
 
     sessions = load_sessions_with_status()
+    sprites = load_sprites()
 
     {:ok,
      socket
      |> assign(:page_title, "Forge Sessions")
-     |> assign(:sessions, sessions)}
+     |> assign(:sessions, sessions)
+     |> assign(:sprites, sprites)
+     |> assign(:sprites_error, nil)}
   end
 
   @impl true
@@ -36,13 +41,40 @@ defmodule AgentJidoWeb.Forge.IndexLive do
      end)}
   end
 
+  def handle_info(:refresh_sprites, socket) do
+    sprites = load_sprites()
+    schedule_refresh()
+    {:noreply, assign(socket, :sprites, sprites)}
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("refresh_sprites", _, socket) do
+    sprites = load_sprites()
+    {:noreply, assign(socket, :sprites, sprites)}
+  end
+
+  def handle_event("destroy_sprite", %{"name" => name}, socket) do
+    case LiveClient.destroy_by_name(name) do
+      :ok ->
+        sprites = load_sprites()
+
+        {:noreply,
+         socket
+         |> assign(:sprites, sprites)
+         |> put_flash(:info, "Sprite #{name} destroyed")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to destroy: #{inspect(reason)}")}
+    end
+  end
+
   def handle_event("start_test_session", _, socket) do
     session_id = "test-#{:erlang.unique_integer([:positive])}"
 
     spec = %{
+      sprite_client: :live,
       runner: :shell,
       runner_config: %{},
       env: %{"TEST_VAR" => "hello_from_forge"},
@@ -108,8 +140,63 @@ defmodule AgentJidoWeb.Forge.IndexLive do
           </table>
         </div>
 
-        <div :if={@sessions == []} class="text-center py-12 text-base-content/60">
-          No active sessions. <.link navigate={~p"/forge/new"} class="link link-primary">Create one</.link>
+        <div :if={@sessions == []} class="text-center py-8 text-base-content/60">
+          No active Forge sessions.
+        </div>
+
+        <div class="mt-12">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">Running Sprites</h2>
+            <button phx-click="refresh_sprites" class="btn btn-sm btn-ghost">
+              Refresh
+            </button>
+          </div>
+
+          <div :if={@sprites_error} class="alert alert-error mb-4">
+            {@sprites_error}
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="table w-full">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={sprite <- @sprites} id={"sprite-#{sprite["name"]}"}>
+                  <td class="font-mono text-sm">{sprite["name"]}</td>
+                  <td>
+                    <span class={[
+                      "badge",
+                      sprite["status"] == "running" && "bg-success/20 text-success",
+                      sprite["status"] != "running" && "bg-base-300"
+                    ]}>
+                      {sprite["status"]}
+                    </span>
+                  </td>
+                  <td class="text-sm">{format_sprite_time(sprite["createdAt"])}</td>
+                  <td>
+                    <button
+                      phx-click="destroy_sprite"
+                      phx-value-name={sprite["name"]}
+                      data-confirm={"Destroy sprite #{sprite["name"]}?"}
+                      class="btn btn-xs btn-error btn-outline"
+                    >
+                      Destroy
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div :if={@sprites == []} class="text-center py-8 text-base-content/60">
+            No running sprites.
+          </div>
         </div>
       </div>
     </Layouts.app>
@@ -132,6 +219,17 @@ defmodule AgentJidoWeb.Forge.IndexLive do
     |> Enum.reject(&is_nil/1)
   end
 
+  defp load_sprites do
+    case LiveClient.list_sprites() do
+      {:ok, sprites} -> sprites
+      {:error, _} -> []
+    end
+  end
+
+  defp schedule_refresh do
+    Process.send_after(self(), :refresh_sprites, 10_000)
+  end
+
   defp format_time(nil), do: "—"
 
   defp format_time(%DateTime{} = dt) do
@@ -139,6 +237,17 @@ defmodule AgentJidoWeb.Forge.IndexLive do
   end
 
   defp format_time(_), do: "—"
+
+  defp format_sprite_time(nil), do: "—"
+
+  defp format_sprite_time(iso_string) when is_binary(iso_string) do
+    case DateTime.from_iso8601(iso_string) do
+      {:ok, dt, _} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> iso_string
+    end
+  end
+
+  defp format_sprite_time(_), do: "—"
 
   defp state_badge(assigns) do
     {bg, text} = state_colors(assigns.state)
