@@ -19,6 +19,7 @@ defmodule AgentJido.Application do
         # Forge supervision tree
         {Registry, keys: :unique, name: AgentJido.Forge.SessionRegistry},
         {DynamicSupervisor, name: AgentJido.Forge.SpriteSupervisor, strategy: :one_for_one},
+        {DynamicSupervisor, name: AgentJido.Forge.ExecSessionSupervisor, strategy: :one_for_one},
         AgentJido.Forge.Manager
       ] ++ forge_dev_children()
 

@@ -28,7 +28,8 @@ defmodule AgentJido.Forge.SpriteSession do
     :state,
     :iteration,
     :started_at,
-    :last_activity
+    :last_activity,
+    :resume_checkpoint_id
   ]
 
   # Public API
@@ -89,17 +90,27 @@ defmodule AgentJido.Forge.SpriteSession do
     runner = resolve_runner(runner_type)
     sprite_client = resolve_sprite_client(Map.get(spec, :sprite_client, :default))
 
+    # Use runner_state from spec if resuming, otherwise use runner_config
+    runner_state =
+      opts[:runner_state] ||
+        Map.get(spec, :runner_state) ||
+        Map.get(spec, :runner_config, %{})
+
+    # Check if we're resuming from a checkpoint
+    resume_checkpoint_id = Map.get(spec, :resume_from_checkpoint)
+
     state = %__MODULE__{
       session_id: session_id,
       spec: spec,
       sprite_id: nil,
       client: nil,
       runner: runner,
-      runner_state: opts[:runner_state] || %{},
+      runner_state: runner_state,
       state: :starting,
       iteration: 0,
       started_at: DateTime.utc_now(),
-      last_activity: DateTime.utc_now()
+      last_activity: DateTime.utc_now(),
+      resume_checkpoint_id: resume_checkpoint_id
     }
 
     # Store the resolved sprite client module in the process dictionary
@@ -114,9 +125,23 @@ defmodule AgentJido.Forge.SpriteSession do
     sprite_spec = Map.get(state.spec, :sprite, %{})
     sprite_client = Process.get(:sprite_client_module, SpriteClient)
 
+    # If resuming from checkpoint, add checkpoint info to sprite spec
+    sprite_spec =
+      if state.resume_checkpoint_id do
+        Map.put(sprite_spec, :restore_checkpoint, state.resume_checkpoint_id)
+      else
+        sprite_spec
+      end
+
     case sprite_client.create(sprite_spec) do
       {:ok, client, sprite_id} ->
-        Logger.debug("Provisioned sprite #{sprite_id} for session #{state.session_id}")
+        if state.resume_checkpoint_id do
+          Logger.debug(
+            "Provisioned sprite #{sprite_id} from checkpoint #{state.resume_checkpoint_id} for session #{state.session_id}"
+          )
+        else
+          Logger.debug("Provisioned sprite #{sprite_id} for session #{state.session_id}")
+        end
 
         new_state = %{
           state
@@ -127,7 +152,14 @@ defmodule AgentJido.Forge.SpriteSession do
         }
 
         notify_status(new_state)
-        send(self(), :bootstrap)
+
+        # If resuming, skip bootstrap and go straight to runner init
+        if state.resume_checkpoint_id do
+          send(self(), :init_runner)
+        else
+          send(self(), :bootstrap)
+        end
+
         {:noreply, new_state}
 
       {:error, reason} ->

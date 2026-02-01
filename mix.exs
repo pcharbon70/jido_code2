@@ -109,7 +109,7 @@ defmodule AgentJido.MixProject do
       {:jido_action, "~> 2.0.0-rc", override: true},
       {:jido_signal, "~> 2.0.0-rc"},
       {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
-      {:req_llm, github: "agentjido/req_llm", branch: "main", override: true},
+      {:req_llm, "~> 1.4", override: true},
       {:timex, "~> 3.7", override: true},
       {:gettext, "~> 0.26", override: true},
 

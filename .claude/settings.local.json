@@ -10,7 +10,9 @@
       "Bash(mix phx.digest:*)",
       "mcp__Tidewave__execute_sql_query",
       "mcp__Tidewave-Web__restart_app_server",
-      "mcp__Tidewave__get_docs"
+      "mcp__Tidewave__get_docs",
+      "Bash(mix clean:*)",
+      "Bash(mix compile:*)"
     ],
     "defaultMode": "bypassPermissions"
   }

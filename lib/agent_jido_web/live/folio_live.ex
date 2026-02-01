@@ -276,9 +276,7 @@ defmodule AgentJidoWeb.FolioLive do
   defp sync_tool_calls(messages, tool_calls, trace) do
     {messages, seen, completed} =
       Enum.reduce(tool_calls, {messages, trace.seen_tool_ids, trace.completed_tool_ids}, fn tc,
-                                                                                            {msgs,
-                                                                                             seen,
-                                                                                             completed} ->
+                                                                                            {msgs, seen, completed} ->
         if MapSet.member?(seen, tc.id) do
           msgs = update_tool_call_status(msgs, tc)
 

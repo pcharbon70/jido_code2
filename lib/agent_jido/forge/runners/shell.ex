@@ -17,7 +17,7 @@ defmodule AgentJido.Forge.Runners.Shell do
 
   @impl true
   def run_iteration(client, state, opts) do
-    command = opts[:command] || state[:command]
+    command = opts[:command] || Map.get(state, :command) || Map.get(state, "command")
 
     case SpriteClient.exec(client, command, opts) do
       {output, 0} ->

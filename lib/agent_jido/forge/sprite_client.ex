@@ -2,7 +2,9 @@ defmodule AgentJido.Forge.SpriteClient do
   @moduledoc """
   Facade for sprite client operations.
 
-  Delegates all calls to the configured implementation module.
+  Delegates all calls to the appropriate implementation module based on
+  the client struct type. For `create/1`, uses the configured implementation.
+
   Configure via:
 
       config :agent_jido, :forge_sprite_client, MyApp.SpriteClient.Impl
@@ -12,9 +14,14 @@ defmodule AgentJido.Forge.SpriteClient do
 
   @behaviour AgentJido.Forge.SpriteClient.Behaviour
 
+  alias AgentJido.Forge.SpriteClient.{Fake, Live}
+
   defp impl do
-    Application.get_env(:agent_jido, :forge_sprite_client, AgentJido.Forge.SpriteClient.Fake)
+    Application.get_env(:agent_jido, :forge_sprite_client, Fake)
   end
+
+  defp impl_for(%Fake{}), do: Fake
+  defp impl_for(%Live{}), do: Live
 
   @impl true
   def create(spec) do
@@ -23,31 +30,31 @@ defmodule AgentJido.Forge.SpriteClient do
 
   @impl true
   def exec(client, command, opts \\ []) do
-    impl().exec(client, command, opts)
+    impl_for(client).exec(client, command, opts)
   end
 
   @impl true
   def spawn(client, command, args, opts \\ []) do
-    impl().spawn(client, command, args, opts)
+    impl_for(client).spawn(client, command, args, opts)
   end
 
   @impl true
   def write_file(client, path, content) do
-    impl().write_file(client, path, content)
+    impl_for(client).write_file(client, path, content)
   end
 
   @impl true
   def read_file(client, path) do
-    impl().read_file(client, path)
+    impl_for(client).read_file(client, path)
   end
 
   @impl true
   def inject_env(client, env_map) do
-    impl().inject_env(client, env_map)
+    impl_for(client).inject_env(client, env_map)
   end
 
   @impl true
   def destroy(client, sprite_id) do
-    impl().destroy(client, sprite_id)
+    impl_for(client).destroy(client, sprite_id)
   end
 end

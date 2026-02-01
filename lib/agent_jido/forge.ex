@@ -5,7 +5,7 @@ defmodule AgentJido.Forge do
   Forge manages sprite sessions with pluggable runners.
   """
 
-  alias AgentJido.Forge.{Manager, SpriteSession}
+  alias AgentJido.Forge.{Manager, Operations, SpriteSession}
 
   # Session management
 
@@ -115,4 +115,46 @@ defmodule AgentJido.Forge do
         {:error, reason}
     end
   end
+
+  # Session lifecycle operations
+
+  @doc """
+  Resume a session from its last checkpoint.
+
+  Returns `{:ok, pid}` on success.
+  """
+  @spec resume(String.t()) :: {:ok, pid()} | {:error, term()}
+  defdelegate resume(session_id), to: Operations
+
+  @doc """
+  Cancel a running session.
+
+  Returns `:ok` on success.
+  """
+  @spec cancel(String.t()) :: :ok | {:error, term()}
+  defdelegate cancel(session_id), to: Operations
+
+  @doc """
+  Create a checkpoint for an active session.
+
+  ## Options
+
+    * `:name` - Human-readable checkpoint name
+
+  Returns `{:ok, checkpoint}` on success.
+  """
+  @spec create_checkpoint(String.t(), keyword()) :: {:ok, term()} | {:error, term()}
+  defdelegate create_checkpoint(session_id, opts \\ []), to: Operations
+
+  @doc """
+  Mark a session as failed with error details.
+  """
+  @spec mark_failed(String.t(), map()) :: {:ok, term()} | {:error, term()}
+  defdelegate mark_failed(session_id, error_details), to: Operations
+
+  @doc """
+  Mark a session as completed.
+  """
+  @spec complete(String.t()) :: {:ok, term()} | {:error, term()}
+  defdelegate complete(session_id), to: Operations
 end

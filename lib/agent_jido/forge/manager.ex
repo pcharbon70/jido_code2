@@ -3,7 +3,8 @@ defmodule AgentJido.Forge.Manager do
   Session lifecycle management for Forge.
 
   Tracks active sessions, starts them under DynamicSupervisor,
-  and registers them in Registry.
+  and registers them in Registry. Enforces concurrency limits
+  per runner type to prevent resource exhaustion.
   """
 
   use GenServer
@@ -15,6 +16,13 @@ defmodule AgentJido.Forge.Manager do
 
   @supervisor AgentJido.Forge.SpriteSupervisor
   @registry AgentJido.Forge.SessionRegistry
+
+  @default_max_sessions 50
+  @default_max_per_runner %{
+    claude_code: 10,
+    shell: 20,
+    workflow: 10
+  }
 
   # Public API
 
@@ -65,29 +73,59 @@ defmodule AgentJido.Forge.Manager do
   # GenServer Callbacks
 
   @impl true
-  def init(_opts) do
-    {:ok, %{sessions: MapSet.new()}}
+  def init(opts) do
+    state = %{
+      sessions: MapSet.new(),
+      session_runners: %{},
+      runner_counts: %{},
+      max_sessions: Keyword.get(opts, :max_sessions, @default_max_sessions),
+      max_per_runner: Keyword.get(opts, :max_per_runner, @default_max_per_runner)
+    }
+
+    {:ok, state}
   end
 
   @impl true
   def handle_call({:start_session, session_id, spec}, _from, state) do
-    case Registry.lookup(@registry, session_id) do
-      [{pid, _}] ->
-        {:reply, {:error, {:already_started, pid}}, state}
+    runner_type = Map.get(spec, :runner_type) || Map.get(spec, "runner_type") || :shell
 
-      [] ->
-        child_spec = {SpriteSession, {session_id, spec, []}}
+    cond do
+      MapSet.size(state.sessions) >= state.max_sessions ->
+        {:reply, {:error, :max_sessions_reached}, state}
 
-        case DynamicSupervisor.start_child(@supervisor, child_spec) do
-          {:ok, pid} ->
-            Process.monitor(pid)
-            new_sessions = MapSet.put(state.sessions, session_id)
-            Logger.debug("Started session #{session_id} with pid #{inspect(pid)}")
-            ForgePubSub.broadcast_sessions({:session_started, session_id})
-            {:reply, {:ok, pid}, %{state | sessions: new_sessions}}
+      Map.get(state.runner_counts, runner_type, 0) >=
+          Map.get(state.max_per_runner, runner_type, 100) ->
+        {:reply, {:error, {:runner_limit_reached, runner_type}}, state}
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
+      true ->
+        case Registry.lookup(@registry, session_id) do
+          [{pid, _}] ->
+            {:reply, {:error, {:already_started, pid}}, state}
+
+          [] ->
+            child_spec = {SpriteSession, {session_id, spec, []}}
+
+            case DynamicSupervisor.start_child(@supervisor, child_spec) do
+              {:ok, pid} ->
+                Process.monitor(pid)
+                new_sessions = MapSet.put(state.sessions, session_id)
+                new_session_runners = Map.put(state.session_runners, session_id, runner_type)
+                new_runner_counts = Map.update(state.runner_counts, runner_type, 1, &(&1 + 1))
+
+                Logger.debug("Started session #{session_id} with pid #{inspect(pid)}")
+                ForgePubSub.broadcast_sessions({:session_started, session_id})
+
+                {:reply, {:ok, pid},
+                 %{
+                   state
+                   | sessions: new_sessions,
+                     session_runners: new_session_runners,
+                     runner_counts: new_runner_counts
+                 }}
+
+              {:error, reason} ->
+                {:reply, {:error, reason}, state}
+            end
         end
     end
   end
@@ -96,10 +134,10 @@ defmodule AgentJido.Forge.Manager do
     case Registry.lookup(@registry, session_id) do
       [{pid, _}] ->
         DynamicSupervisor.terminate_child(@supervisor, pid)
-        new_sessions = MapSet.delete(state.sessions, session_id)
+        new_state = decrement_session(state, session_id)
         Logger.debug("Stopped session #{session_id}")
         ForgePubSub.broadcast_sessions({:session_stopped, session_id, reason})
-        {:reply, :ok, %{state | sessions: new_sessions}}
+        {:reply, :ok, new_state}
 
       [] ->
         {:reply, {:error, :not_found}, state}
@@ -113,17 +151,35 @@ defmodule AgentJido.Forge.Manager do
 
   @impl true
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
-    active_sessions =
+    dead_sessions =
       state.sessions
       |> MapSet.to_list()
-      |> Enum.filter(fn session_id ->
+      |> Enum.reject(fn session_id ->
         case Registry.lookup(@registry, session_id) do
           [{_pid, _}] -> true
           [] -> false
         end
       end)
-      |> MapSet.new()
 
-    {:noreply, %{state | sessions: active_sessions}}
+    new_state = Enum.reduce(dead_sessions, state, &decrement_session(&2, &1))
+    {:noreply, new_state}
+  end
+
+  defp decrement_session(state, session_id) do
+    runner_type = Map.get(state.session_runners, session_id)
+
+    new_runner_counts =
+      if runner_type do
+        Map.update(state.runner_counts, runner_type, 0, &max(&1 - 1, 0))
+      else
+        state.runner_counts
+      end
+
+    %{
+      state
+      | sessions: MapSet.delete(state.sessions, session_id),
+        session_runners: Map.delete(state.session_runners, session_id),
+        runner_counts: new_runner_counts
+    }
   end
 end

@@ -76,7 +76,7 @@ defmodule AgentJidoWeb.Forge.IndexLive do
     spec = %{
       sprite_client: :live,
       runner: :shell,
-      runner_config: %{},
+      runner_config: %{command: "cat /app/greeting.txt && echo 'TEST_VAR='$TEST_VAR"},
       env: %{"TEST_VAR" => "hello_from_forge"},
       bootstrap: [
         %{type: "exec", command: "mkdir -p /app"},

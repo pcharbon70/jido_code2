@@ -57,9 +57,7 @@ defmodule AgentJido.Folio.InboxItem do
       change fn changeset, _context ->
         title = Ash.Changeset.get_argument(changeset, :title)
 
-        case Ash.create(AgentJido.Folio.Action, %{title: title, status: :next},
-               domain: AgentJido.Folio
-             ) do
+        case Ash.create(AgentJido.Folio.Action, %{title: title, status: :next}, domain: AgentJido.Folio) do
           {:ok, action} ->
             changeset
             |> Ash.Changeset.force_change_attribute(:created_action_id, action.id)

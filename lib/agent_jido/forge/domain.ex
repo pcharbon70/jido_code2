@@ -9,5 +9,8 @@ defmodule AgentJido.Forge.Domain do
     resource AgentJido.Forge.Resources.SpriteSpec
     resource AgentJido.Forge.Resources.Workflow
     resource AgentJido.Forge.Resources.Session
+    resource AgentJido.Forge.Resources.Checkpoint
+    resource AgentJido.Forge.Resources.ExecSession
+    resource AgentJido.Forge.Resources.Event
   end
 end
