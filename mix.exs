@@ -117,6 +117,7 @@ defmodule AgentJido.MixProject do
       {:sprites, github: "superfly/sprites-ex"},
 
       # Utilities
+      {:live_toast, "~> 0.8"},
       {:jason, "~> 1.2"},
       {:picosat_elixir, "~> 0.2"},
       {:mdex, "~> 0.4"},

@@ -12,7 +12,8 @@
       "mcp__Tidewave-Web__restart_app_server",
       "mcp__Tidewave__get_docs",
       "Bash(mix clean:*)",
-      "Bash(mix compile:*)"
+      "Bash(mix compile:*)",
+      "Bash(mix deps.get:*)"
     ],
     "defaultMode": "bypassPermissions"
   }

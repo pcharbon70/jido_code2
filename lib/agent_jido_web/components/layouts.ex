@@ -63,50 +63,12 @@ defmodule AgentJidoWeb.Layouts do
       </div>
     </main>
 
-    <.flash_group flash={@flash} />
-    """
-  end
-
-  @doc """
-  Shows the flash group with standard titles and content.
-
-  ## Examples
-
-      <.flash_group flash={@flash} />
-  """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
-  attr :id, :string, default: "flash-group", doc: "the optional id of flash container"
-
-  def flash_group(assigns) do
-    ~H"""
-    <div id={@id} aria-live="polite">
-      <.flash kind={:info} flash={@flash} />
-      <.flash kind={:error} flash={@flash} />
-
-      <.flash
-        id="client-error"
-        kind={:error}
-        title={gettext("We can't find the internet")}
-        phx-disconnected={show(".phx-client-error #client-error") |> JS.remove_attribute("hidden")}
-        phx-connected={hide("#client-error") |> JS.set_attribute({"hidden", ""})}
-        hidden
-      >
-        {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
-      </.flash>
-
-      <.flash
-        id="server-error"
-        kind={:error}
-        title={gettext("Something went wrong!")}
-        phx-disconnected={show(".phx-server-error #server-error") |> JS.remove_attribute("hidden")}
-        phx-connected={hide("#server-error") |> JS.set_attribute({"hidden", ""})}
-        hidden
-      >
-        {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
-      </.flash>
-    </div>
+    <.live_toast_group
+      flash={@flash}
+      connected={assigns[:socket] != nil}
+      corner={:top_right}
+      toasts_sync={assigns[:toasts_sync] || []}
+    />
     """
   end
 
@@ -143,6 +105,36 @@ defmodule AgentJidoWeb.Layouts do
       >
         <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
       </button>
+    </div>
+    """
+  end
+
+  @doc """
+  Wrapper component for LiveToast.toast_group that loads the module dynamically.
+  """
+  attr :flash, :map, required: true
+  attr :connected, :boolean, required: true
+  attr :corner, :atom, default: :bottom_right
+  attr :toasts_sync, :list, default: []
+
+  def live_toast_group(assigns) do
+    # Dynamically render LiveToast component
+    ~H"""
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto">
+      <.live_component
+        :if={@connected}
+        module={LiveToast.LiveComponent}
+        id="toast-group"
+        toasts_sync={@toasts_sync}
+        corner={@corner}
+        f={@flash}
+        kinds={[:info, :error]}
+      />
+      <div :if={!@connected} id="toast-group">
+        <div :for={{kind, msg} <- @flash} class="bg-white group/toast z-100 pointer-events-auto relative w-full items-center justify-between origin-center overflow-hidden rounded-lg p-4 shadow-lg border col-start-1 col-end-1 row-start-1 row-end-2 flex">
+          <p class="text-sm">{msg}</p>
+        </div>
+      </div>
     </div>
     """
   end
