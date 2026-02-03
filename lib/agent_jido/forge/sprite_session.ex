@@ -11,6 +11,7 @@ defmodule AgentJido.Forge.SpriteSession do
   require Logger
 
   alias AgentJido.Forge.Bootstrap
+  alias AgentJido.Forge.Persistence
   alias AgentJido.Forge.PubSub, as: ForgePubSub
   alias AgentJido.Forge.SpriteClient
 
@@ -29,7 +30,8 @@ defmodule AgentJido.Forge.SpriteSession do
     :iteration,
     :started_at,
     :last_activity,
-    :resume_checkpoint_id
+    :resume_checkpoint_id,
+    :sprite_client_module
   ]
 
   # Public API
@@ -86,7 +88,7 @@ defmodule AgentJido.Forge.SpriteSession do
 
   @impl true
   def init({session_id, spec, opts}) do
-    runner_type = Map.get(spec, :runner, :shell)
+    runner_type = Map.get(spec, :runner) || Map.get(spec, :runner_type, :shell)
     runner = resolve_runner(runner_type)
     sprite_client = resolve_sprite_client(Map.get(spec, :sprite_client, :default))
 
@@ -110,11 +112,9 @@ defmodule AgentJido.Forge.SpriteSession do
       iteration: 0,
       started_at: DateTime.utc_now(),
       last_activity: DateTime.utc_now(),
-      resume_checkpoint_id: resume_checkpoint_id
+      resume_checkpoint_id: resume_checkpoint_id,
+      sprite_client_module: sprite_client
     }
-
-    # Store the resolved sprite client module in the process dictionary
-    Process.put(:sprite_client_module, sprite_client)
 
     send(self(), :provision)
     {:ok, state}
@@ -123,7 +123,7 @@ defmodule AgentJido.Forge.SpriteSession do
   @impl true
   def handle_info(:provision, state) do
     sprite_spec = Map.get(state.spec, :sprite, %{})
-    sprite_client = Process.get(:sprite_client_module, SpriteClient)
+    sprite_client = state.sprite_client_module
 
     # If resuming from checkpoint, add checkpoint info to sprite spec
     sprite_spec =
@@ -151,6 +151,7 @@ defmodule AgentJido.Forge.SpriteSession do
             last_activity: DateTime.utc_now()
         }
 
+        Persistence.record_provision_complete(state.session_id, sprite_id, nil)
         notify_status(new_state)
 
         # If resuming, skip bootstrap and go straight to runner init
@@ -170,7 +171,7 @@ defmodule AgentJido.Forge.SpriteSession do
 
   def handle_info(:bootstrap, state) do
     env = Map.get(state.spec, :env, %{})
-    sprite_client = Process.get(:sprite_client_module, SpriteClient)
+    sprite_client = state.sprite_client_module
 
     case sprite_client.inject_env(state.client, env) do
       :ok ->
@@ -186,6 +187,7 @@ defmodule AgentJido.Forge.SpriteSession do
                 last_activity: DateTime.utc_now()
             }
 
+            Persistence.record_bootstrap_complete(state.session_id)
             notify_status(new_state)
             send(self(), :init_runner)
             {:noreply, new_state}
@@ -231,6 +233,8 @@ defmodule AgentJido.Forge.SpriteSession do
     runner = state.runner
     runner_state = state.runner_state
 
+    Persistence.record_execution_start(state.session_id, next_iteration, metadata: %{runner: runner})
+
     Task.start(fn ->
       result = runner.run_iteration(client, runner_state, opts)
       GenServer.cast(server, {:iteration_complete, result, from, next_iteration})
@@ -252,7 +256,7 @@ defmodule AgentJido.Forge.SpriteSession do
   end
 
   def handle_call({:exec, command, opts}, _from, %{state: :ready} = state) do
-    sprite_client = Process.get(:sprite_client_module, SpriteClient)
+    sprite_client = state.sprite_client_module
     result = sprite_client.exec(state.client, command, opts)
 
     new_state = %{state | last_activity: DateTime.utc_now()}
@@ -272,6 +276,7 @@ defmodule AgentJido.Forge.SpriteSession do
             last_activity: DateTime.utc_now()
         }
 
+        Persistence.record_input_applied(state.session_id, state.runner_state)
         {:reply, :ok, new_state}
 
       {:error, reason} ->
@@ -306,13 +311,16 @@ defmodule AgentJido.Forge.SpriteSession do
       case result do
         {:ok, %{status: :needs_input} = r} ->
           ForgePubSub.broadcast_session(state.session_id, {:needs_input, %{prompt: r[:question]}})
+          Persistence.record_execution_complete(state.session_id, r)
           %{state | state: :needs_input, last_activity: DateTime.utc_now()}
 
         {:ok, result_map} ->
           if output = result_map[:output], do: notify_output(state, output)
+          Persistence.record_execution_complete(state.session_id, result_map)
           %{state | state: :ready, last_activity: DateTime.utc_now()}
 
-        {:error, _reason} ->
+        {:error, reason} ->
+          Persistence.record_failure(state.session_id, reason)
           %{state | state: :ready, last_activity: DateTime.utc_now()}
       end
 
@@ -324,7 +332,7 @@ defmodule AgentJido.Forge.SpriteSession do
 
   @impl true
   def terminate(reason, state) do
-    Logger.debug("Terminating session #{state.session_id}: #{inspect(reason)}")
+    Logger.warning("Terminating session #{state.session_id}: #{inspect(reason)}")
 
     ForgePubSub.broadcast_session(state.session_id, {:stopped, reason})
 
@@ -333,8 +341,15 @@ defmodule AgentJido.Forge.SpriteSession do
     end
 
     if state.client && state.sprite_id do
-      sprite_client = Process.get(:sprite_client_module, SpriteClient)
-      sprite_client.destroy(state.client, state.sprite_id)
+      sprite_client = state.sprite_client_module
+
+      case sprite_client.destroy(state.client, state.sprite_id) do
+        :ok ->
+          Logger.info("Destroyed sprite #{state.sprite_id}")
+
+        {:error, err} ->
+          Logger.warning("Failed to destroy sprite #{state.sprite_id}: #{inspect(err)}")
+      end
     end
 
     :ok

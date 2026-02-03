@@ -10,6 +10,9 @@ defmodule AgentJido.Forge.SpriteClient.Fake do
 
   use Agent
 
+  @impl true
+  def impl_module, do: __MODULE__
+
   require Logger
 
   defstruct [:agent_pid]

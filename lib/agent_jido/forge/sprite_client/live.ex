@@ -18,6 +18,9 @@ defmodule AgentJido.Forge.SpriteClient.Live do
 
   require Logger
 
+  @impl true
+  def impl_module, do: __MODULE__
+
   defstruct [:sprites_client, :sprite, :sprite_id, :fs]
 
   @type t :: %__MODULE__{

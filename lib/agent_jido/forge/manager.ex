@@ -11,6 +11,7 @@ defmodule AgentJido.Forge.Manager do
 
   require Logger
 
+  alias AgentJido.Forge.Persistence
   alias AgentJido.Forge.PubSub, as: ForgePubSub
   alias AgentJido.Forge.SpriteSession
 
@@ -87,7 +88,7 @@ defmodule AgentJido.Forge.Manager do
 
   @impl true
   def handle_call({:start_session, session_id, spec}, _from, state) do
-    runner_type = Map.get(spec, :runner_type) || Map.get(spec, "runner_type") || :shell
+    runner_type = Map.get(spec, :runner) || Map.get(spec, :runner_type) || Map.get(spec, "runner_type") || :shell
 
     cond do
       MapSet.size(state.sessions) >= state.max_sessions ->
@@ -103,6 +104,8 @@ defmodule AgentJido.Forge.Manager do
             {:reply, {:error, {:already_started, pid}}, state}
 
           [] ->
+            Persistence.record_session_started(session_id, spec)
+
             child_spec = {SpriteSession, {session_id, spec, []}}
 
             case DynamicSupervisor.start_child(@supervisor, child_spec) do

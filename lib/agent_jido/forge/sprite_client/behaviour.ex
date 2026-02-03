@@ -59,4 +59,9 @@ defmodule AgentJido.Forge.SpriteClient.Behaviour do
   Destroy the sprite and clean up resources.
   """
   @callback destroy(client(), sprite_id()) :: :ok | {:error, term()}
+
+  @doc """
+  Returns the implementation module for this client type.
+  """
+  @callback impl_module() :: module()
 end

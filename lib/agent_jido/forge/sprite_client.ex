@@ -14,14 +14,26 @@ defmodule AgentJido.Forge.SpriteClient do
 
   @behaviour AgentJido.Forge.SpriteClient.Behaviour
 
-  alias AgentJido.Forge.SpriteClient.{Fake, Live}
+  alias AgentJido.Forge.SpriteClient.Fake
 
   defp impl do
     Application.get_env(:agent_jido, :forge_sprite_client, Fake)
   end
 
-  defp impl_for(%Fake{}), do: Fake
-  defp impl_for(%Live{}), do: Live
+  defp impl_for(%module{} = _client) when is_atom(module) do
+    if function_exported?(module, :impl_module, 0) do
+      module.impl_module()
+    else
+      module
+    end
+  end
+
+  defp impl_for(client) do
+    raise ArgumentError, "Unknown sprite client struct: #{inspect(client)}"
+  end
+
+  @impl true
+  def impl_module, do: impl()
 
   @impl true
   def create(spec) do
