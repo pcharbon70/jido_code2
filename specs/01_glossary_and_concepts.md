@@ -1,133 +1,75 @@
 # 01 — Glossary & Concepts
 
-## Core Concepts
+## Core Terms
+
+### JidoCode
+
+The product described by this spec set: a single-user coding orchestrator with durable workflows, policy-gated shipping, and typed RPC APIs.
 
 ### Agent
-A **Jido Agent** is a stateful entity that receives signals, selects actions via a strategy, and emits results. In Jido Code, agents wrap coding tools (Claude Code, Ampcode) or perform support tasks (issue triage, code search).
 
-An agent has:
-- A **name** and **identity**
-- A **strategy** that determines how it processes signals (e.g., `JidoRunic.Strategy` for workflow-driven agents)
-- **State** that persists across signal processing cycles
-- **Actions** it can perform
+A Jido agent that processes signals and executes actions (coding, triage, research, coordination).
 
 ### Action
-A **Jido Action** is a composable, validated unit of work. Actions are pure functions with declared schemas for inputs and outputs. They are the atomic building blocks of workflows.
 
-Examples: `CloneRepo`, `RunTests`, `CommitChanges`, `CreatePR`, `TriageIssue`, `SearchCode`
+A validated, composable unit of work with explicit inputs/outputs and failure contracts.
 
-### Signal
-A **Jido Signal** is a typed message envelope used for agent communication. Signals carry:
-- A **type** (e.g., `"workflow.step.completed"`, `"issue.opened"`)
-- **Data** payload
-- **Source** and **causation** metadata for provenance
+### Workflow
 
-### Workflow (Runic DAG)
-A **Workflow** is a durable, directed acyclic graph (DAG) of actions, powered by `jido_runic`. Each node in the DAG is a `JidoRunic.ActionNode` that wraps a Jido Action.
-
-Workflows are:
-- **Durable** — state survives process restarts
-- **Observable** — every step produces facts with provenance
-- **Composable** — nodes can be added, removed, or rewired
-- **Signal-gated** — branches can activate based on signal type patterns
-
-Think of it as "Zapier for coding tasks, but the nodes are AI agents."
+A durable Runic DAG composed of action nodes and control/approval nodes.
 
 ### Workflow Run
-A **Workflow Run** is a single execution instance of a workflow definition. It tracks:
-- Current step / phase
-- Input parameters
-- Produced artifacts
-- Status (pending, running, awaiting_approval, completed, failed)
-- Timing and cost data
+
+A concrete execution instance of a version-pinned workflow definition.
 
 ### Runner
-A **Runner** is a Forge execution adapter that defines what happens inside a sandbox per iteration. Runners implement the `AgentJido.Forge.Runner` behaviour.
 
-Built-in runners:
-| Runner | Purpose |
-|--------|---------|
-| `Shell` | Execute shell commands |
-| `ClaudeCode` | Drive Claude Code CLI |
-| `Workflow` | Multi-step data-driven workflows |
-| `Custom` | User-supplied module/function |
-
-Future: `Ampcode` runner.
+Forge execution adapter (for example `shell`, `claude_code`, custom).
 
 ### Forge Session
-A **Forge Session** is an isolated execution runtime managed by the Forge subsystem. It:
-1. Provisions an environment (local temp dir or sprite container)
-2. Bootstraps the environment (install tools, inject secrets, clone repo)
-3. Runs a runner in iteration loops
-4. Streams output via PubSub
-5. Cleans up on termination
 
-### Sprite
-A **Sprite** is a cloud sandbox container provisioned via the Sprites SDK. Sprites provide:
-- Isolated filesystem
-- Network access (configurable)
-- Persistent or ephemeral storage
-- API for exec, file I/O, and environment injection
+Execution runtime for runner-backed workflow steps, with streaming output and persisted events.
 
 ### Project
-A **Project** in Jido Code represents a GitHub repository that has been imported. It stores:
-- GitHub repo metadata (owner, name, default branch)
-- Environment configuration (local path or sprite spec)
-- Workflow associations
-- Support agent configurations
+
+Imported repository plus configuration required for workflows and support agents.
 
 ### Workspace
-A **Workspace** is the execution environment for a project. Two types:
-- **Local**: a directory on the host filesystem where the repo is cloned
-- **Sprite**: a cloud sandbox container with the repo cloned inside
 
-The workspace provides a uniform interface regardless of type: filesystem access, git operations, command execution, and secrets injection.
+Execution environment bound to a project (`:sprite` cloud default, `:local` fallback).
 
 ### Artifact
-An **Artifact** is any output produced by a workflow run:
-- Execution logs
-- Diff/patch files
-- Research reports (from Issue Bot)
-- PR URLs
-- Cost summaries
-- Agent conversation transcripts
+
+Persisted workflow output (logs, summaries, diff stats, PR metadata, reports).
 
 ### Support Agent
-A **Support Agent** is a long-lived agent configured per-project to perform ongoing tasks:
-- **GitHub Issue Bot**: triages new issues, researches root causes, posts responses
-- Future: PR review bot, dependency update bot, release bot
+
+Long-lived automation component configured per project (MVP includes GitHub Issue Bot).
+
+### Secret Reference
+
+Encrypted operational secret record used by integrations and execution steps.
+
+### Product Action Inventory
+
+Normative list of public actions that must be exposed via typed Ash TypeScript RPC.
 
 ## Conceptual Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Jido Code (Phoenix App)                   │
-├──────────────┬──────────────┬──────────────┬────────────────────┤
-│   Web UI     │  Workflows   │   Forge      │   GitHub           │
-│  (LiveView)  │  (Runic)     │ (Execution)  │  (App + Webhooks)  │
-├──────────────┴──────────────┴──────────────┴────────────────────┤
-│                    Ash Domain Model (PostgreSQL)                  │
-├──────────────┬──────────────┬──────────────┬────────────────────┤
-│   jido       │  jido_ai     │ jido_action  │  jido_signal       │
-│  (agents)    │  (LLM)       │ (actions)    │  (messaging)       │
-└──────────────┴──────────────┴──────────────┴────────────────────┘
+```text
+LiveView UI + RPC Clients
+  -> Ash Actions (public contracts)
+    -> Workflow Orchestration (Runic)
+      -> Forge Execution + Integrations
+        -> Postgres (Ash domains, encrypted secret refs, run history)
 ```
 
 ## Relationship Map
 
-```
-Project  ──has-many──▶  WorkflowDefinition
-Project  ──has-one───▶  Workspace (local or sprite config)
-Project  ──has-many──▶  SupportAgent configs
-
-WorkflowDefinition  ──instantiates──▶  WorkflowRun
-WorkflowRun  ──creates──▶  ForgeSession(s)
-WorkflowRun  ──produces──▶  Artifact(s)
-WorkflowRun  ──may-create──▶  PullRequest
-
-ForgeSession  ──uses──▶  Runner (ClaudeCode, Shell, etc.)
-ForgeSession  ──runs-in──▶  Workspace (local dir or sprite)
-
-SupportAgent  ──triggered-by──▶  GitHub Webhook
-SupportAgent  ──creates──▶  WorkflowRun
+```text
+Project -> WorkflowDefinition -> WorkflowRun -> Artifact
+Project -> SupportAgentConfig -> webhook-triggered WorkflowRun
+WorkflowRun -> ForgeSession(s)
+WorkflowRun -> PullRequest (optional)
+SecretRef -> provider/workspace/integration usage
 ```

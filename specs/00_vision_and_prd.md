@@ -2,114 +2,114 @@
 
 ## Vision
 
-Jido Code is an open-source, self-hosted coding orchestrator that turns AI coding agents into a managed, observable, and composable development workflow.
+JidoCode is an open-source, self-hosted coding orchestration product that turns engineering tasks and GitHub events into safe, reviewable pull requests.
 
-Instead of chatting with a single AI coding tool in a terminal, Jido Code lets you define **durable, multi-step workflows** that orchestrate multiple agents — Claude Code, Ampcode, custom tools — running in isolated environments, with human approval gates, automatic git operations, and pull request creation.
+The product is built on Jido, Runic, and Forge, but the priority is practical software delivery: durable workflows, approval gates, observability, and reliable git/PR automation.
 
-It is the flagship showcase for the **Jido framework ecosystem**: demonstrating how Jido's agents, actions, signals, durable workflows (Runic), and sandboxed execution (Forge/Sprites) compose into a real, useful product.
+## Product Identity
+
+- Canonical name: **JidoCode**
+- Category: single-user coding orchestrator
+- Primary deployment: cloud VM (Fly Machine style)
+- Secondary mode: local dev/fallback self-host
+- Future mode: local desktop packaging (Tauri-style)
 
 ## Why Open Source
 
-- **Showcase the Jido ecosystem** — developers learn Jido by seeing it in production
-- **Transparency** — coding orchestrators touch your code; you should be able to audit them
-- **Extensibility** — anyone can add new runners, agents, workflow templates, and integrations
-- **Community** — OSS maintainers are the target users; they should own their tools
-- **No private keys in source** — users bring their own GitHub App and API keys
+- Users can audit orchestration and safety logic
+- Community can extend workflows, agents, and integrations
+- The implementation serves as a reference for Jido ecosystem usage
+- Users keep control of their own credentials and infrastructure
 
 ## Target Users
 
-### Primary: Solo Developer / Small Team Lead
-- Manages 1-10 repositories
-- Uses AI coding tools daily (Claude Code, Cursor, Copilot, Amp)
-- Wants to automate repetitive coding workflows (fix CI, implement issues, refactor)
-- Comfortable self-hosting a Phoenix app (on Fly or locally)
+### Primary
 
-### Secondary: OSS Maintainer
-- Manages popular open-source projects
-- Drowning in issues, PRs, and triage work
-- Wants automated issue triage, research, and response
-- Needs guardrails: nothing ships without approval
+Solo developers and small team leads who manage a few repositories and want repeatable automation for implementation, test repair, and issue handling.
+
+### Secondary
+
+Open-source maintainers who need triage automation and guarded PR generation.
 
 ## Primary Jobs-to-be-Done
 
-1. **"Run this coding task across my repo"** — define a workflow, point it at a repo, get a PR
-2. **"Automate my issue triage"** — configure a bot that classifies, researches, and responds to GitHub issues
-3. **"Compose multi-step coding pipelines"** — chain agents: research → design → implement → test → review → PR
-4. **"See what my agents are doing"** — real-time streaming output, execution timeline, cost tracking
+1. Run a coding task end-to-end and get a PR.
+2. Fix failing tests via guided workflow automation.
+3. Triage and respond to GitHub issues using support agents.
+4. Observe live workflow execution and enforce human approval before shipping.
 
-## Core Principles
+## Core Product Principles
 
 | Principle | Meaning |
-|-----------|---------|
-| **Durable by default** | Workflows survive restarts. Every step is checkpointed. Runic provides provenance. |
-| **Observable** | Every agent action, signal, and output is streamed to the UI and persisted. |
-| **Reproducible** | Environments are defined as specs. A workflow run on Sprites behaves the same as local. |
-| **Composable** | Agents, actions, and workflows are building blocks. Users compose their own pipelines. |
-| **Safe** | Nothing ships without an approval gate (configurable per workflow). Secrets never leak to LLMs. |
-| **Single-user simple** | No RBAC, no orgs, no multi-tenancy overhead. One person, one instance. |
+|---|---|
+| Durable execution | Workflow state survives restarts and preserves provenance |
+| Safe delivery | Git safety checks and approval gates before code ships |
+| Auditable operations | Every run, transition, and side effect is trackable |
+| Cloud-first pragmatism | Production path is straightforward and documented |
+| Typed interfaces | Public product actions are callable via generated TypeScript RPC |
+| Single-user clarity | Security and auth optimized for one owner, not multi-tenant complexity |
 
-## Key Differentiators vs Chat-Based Coding Tools
+## Key Differentiators
 
-| Chat-based tools | Jido Code |
-|------------------|-----------|
-| Single session, ephemeral | Durable workflows with checkpoints |
-| One agent at a time | Multi-agent orchestration with handoffs |
-| Manual git operations | Automated commit + PR |
-| No observability | Full execution timeline + cost tracking |
-| No composition | Zapier-style workflow builder (Runic DAGs) |
-| No issue management | Built-in GitHub Issue Bot agents |
-| Same model for everything | Model routing: cheap for volume, expensive for judgment |
+| Typical chat coding tool | JidoCode |
+|---|---|
+| Ephemeral session | Durable workflow runs |
+| Manual git + PR | Automated and policy-guarded git + PR |
+| Minimal run visibility | Real-time run timeline + artifacts |
+| Weak operational controls | Explicit security and git safety policies |
+| Prompt-only interaction | Workflow + webhook trigger model (including Issue Bot) |
 
 ## Success Metrics
 
 | Metric | Target |
-|--------|--------|
-| Time from install to first workflow run | < 10 minutes |
-| Time from workflow completion to PR | < 30 seconds |
-| Workflow completion rate (no crashes) | > 95% |
-| GitHub stars (vanity but matters for showcase) | 500 in 6 months |
+|---|---|
+| Deploy to first successful workflow run | < 15 minutes |
+| Workflow completion to PR creation | < 30 seconds |
+| Successful run rate (non-crash) | > 95% |
+| Issue bot webhook-to-response latency (P95) | < 2 minutes |
+| Public action RPC coverage | 100% of required product action inventory |
 
 ## Release Phases
 
-### Phase 1: MVP (v0.1)
-- Onboarding wizard (API keys, GitHub App, environment)
-- Import GitHub repos
-- Local environment support
-- 2 builtin workflows: "Implement Task" and "Fix Failing Tests"
-- Claude Code runner
-- Manual workflow trigger from UI
-- Commit + PR on completion
-- Basic admin password auth
-- Dual-mode deployment (Fly + local)
+### Phase 1 (MVP)
 
-### Phase 2: Orchestration (v0.2)
-- Sprite (cloud sandbox) environment support
-- Custom workflow authoring (code-first, Runic DAG)
-- Ampcode runner
-- Research → Design → Implement pipeline (multi-phase workflow)
-- GitHub Issue Bot (triage + research + respond)
-- Webhook-triggered workflows (issue opened, PR comment)
-- Execution cost tracking and budgets
-- Multi-model routing (cheap for volume, expensive for judgment)
+- Owner onboarding and configuration
+- AshAuth single-user setup
+- Encrypted DB secrets + env bootstrap
+- Cloud VM deployment guidance (local dev supported)
+- Repo import and workspace provisioning
+- Builtin workflows:
+  - Implement Task
+  - Fix Failing Tests
+  - Issue Triage & Research (webhook-triggered)
+- Approval gates and live observability
+- Safe branch/commit/push/PR pipeline
+- Full product action coverage in TypeScript RPC
 
-### Phase 3: Polish (v0.3)
-- Visual workflow builder UI
-- Workflow templates marketplace/library
-- Scheduled workflows (cron-style)
-- Multi-repo workflows
-- Enhanced diff viewer and artifact browser
-- LiveDashboard integration for observability
+### Phase 2
 
-## Jido Ecosystem Dependencies
+- Expanded model routing and cost controls
+- Sprite-first scaling enhancements
+- Advanced multi-phase research/design workflows
+- Broader support-agent library
+- Tighter operational analytics
 
-| Package | Role in Jido Code |
-|---------|-------------------|
-| `jido` | Core agent runtime, strategies, signals |
-| `jido_action` | Composable action definitions |
-| `jido_signal` | Agent communication envelopes |
-| `jido_ai` | LLM integration (Anthropic, OpenAI) |
-| `jido_runic` | Durable workflow DAGs |
-| `jido_claude` | Claude Code CLI wrapper |
-| `req_llm` | HTTP LLM client |
-| `ash` | Data modeling, persistence, admin |
-| `ash_authentication` | Auth (simplified for single-user) |
+### Phase 3
+
+- Visual workflow authoring UX
+- Template library and scheduling
+- Desktop deployment package (Tauri-style)
+- Advanced policy and governance tooling
+
+## Ecosystem Dependencies
+
+| Package | Role |
+|---|---|
+| `jido`, `jido_action`, `jido_signal` | Agent runtime and messaging |
+| `jido_runic` | Durable workflow DAG execution |
+| `ash`, `ash_postgres` | Data model and persistence |
+| `ash_authentication` | Single-user auth architecture |
+| `ash_cloak`, `cloak` | Encrypted secret persistence |
+| `ash_typescript` | Typed RPC generation |
+| `req`, `req_llm` | HTTP and LLM integrations |
+| `sprites` | Cloud sandbox execution |

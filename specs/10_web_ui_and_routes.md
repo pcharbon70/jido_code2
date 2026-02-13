@@ -2,111 +2,105 @@
 
 ## Information Architecture
 
+```text
+/                              -> Home / dashboard entry
+/setup                         -> onboarding and owner bootstrap
+/dashboard                     -> project and run overview
+/workbench                     -> all projects + issues + PRs + agent job kickoff
+/projects                      -> project list
+/projects/:id                  -> project detail
+/projects/:id/runs/:run_id     -> workflow run detail
+/workflows                     -> workflow definitions
+/agents                        -> support agents (Issue Bot MVP)
+/settings                      -> settings home
+/settings/security             -> security help and operational guidance
+/settings/api                  -> RPC/API and integration status
 ```
-/                         → Home / Dashboard (project overview)
-/setup                    → Onboarding wizard (first-run only)
-/projects                 → Projects list
-/projects/:id             → Project detail (workspace, workflows, runs)
-/projects/:id/runs/:run_id → Workflow run detail (timeline, logs, output)
-/workflows                → Workflow definitions library
-/agents                   → Support agents overview
-/settings                 → Settings (API keys, GitHub, environment, auth)
-```
 
-## Page Descriptions
+## Route Model
 
-### Dashboard (`/`)
-- Overview of all projects with status indicators
-- Recent workflow runs with status badges
-- Quick actions: "New Workflow Run", "Import Project"
-- System health: connected services, API key status (detected from env vars)
-- If first-run (no setup completed), redirect to `/setup`
+### Browser Routes (AshAuth Protected)
 
-### Onboarding Wizard (`/setup`)
-- See [11_onboarding_flow.md](11_onboarding_flow.md)
-- Multi-step form, one screen per step
-- Progress indicator
-- Skip/defer options for non-critical steps
+- LiveView pages require authenticated owner session except explicitly public onboarding bootstrap cases.
+- CSRF protection applies to browser mutating requests.
 
-### Projects List (`/projects`)
-- Card or list view of imported projects
-- Per project: name, GitHub link, environment type, last run status
-- "Import Project" button → triggers GitHub repo selection
-- Filter/search by name
+### API/RPC Routes
 
-### Project Detail (`/projects/:id`)
-- **Header**: repo name, GitHub link, environment badge (local/sprite), branch
-- **Tabs or sections**:
-  - **Overview**: README preview, recent activity
-  - **Workflows**: associated workflow definitions, "Run Workflow" button
-  - **Runs**: history of workflow runs for this project
-  - **Support Agents**: configured agents (Issue Bot, etc.) with enable/disable
-  - **Settings**: environment config, branch defaults, secrets overrides
+- `POST /rpc/run`
+- `POST /rpc/validate`
+- API actor may be resolved by session, bearer token, or API key as allowed by action policy.
 
-### Workflow Run Detail (`/projects/:id/runs/:run_id`)
-- **Execution Timeline**: vertical timeline of workflow steps
-  - Each step shows: name, status (pending/running/done/failed/awaiting_approval), duration, cost
-  - Expandable to show agent output
-- **Live Output Stream**: scrolling log output from the active Forge session
-  - Color-coded by source (stdout, stderr, agent events)
-  - Auto-scroll with manual override
-- **Approval Gates**: inline approve/reject buttons when workflow is awaiting input
-- **Artifacts Panel**: links to produced artifacts (PR URL, logs, diffs)
-- **Controls**: pause, cancel, retry (where applicable)
+### Webhook Route
 
-### Workflow Definitions (`/workflows`)
-- List of available workflow templates (builtin + custom)
-- Per workflow: name, description, step count, last used
-- "Create Workflow" (Phase 3: visual builder; MVP: link to code docs)
+- `POST /api/github/webhooks`
+- Signature verification and idempotency required.
+
+## Page Requirements
+
+### Dashboard
+
+- Recent runs and status
+- project health
+- issue bot activity summary
+- security posture indicators (last secret rotation, webhook health)
+
+### Workbench (`/workbench`)
+
+- Cross-project operations table for all imported GitHub repositories
+- Per project: open issue count, open PR count, stale indicators, latest run status
+- Issue/PR row actions:
+  - kickoff fix workflow
+  - kickoff triage/research workflow
+  - kickoff follow-up job (investigate, retest, regenerate response)
+- Fast links to:
+  - GitHub issue/PR URL
+  - local project detail
+  - active/newly created run detail
+
+### Onboarding (`/setup`)
+
+- owner bootstrap
+- provider and GitHub setup
+- secret configuration
+- environment defaults
+- import first project
 
 ### Support Agents (`/agents`)
-- Overview of available support agents
-- Per agent: name, description, enabled project count
-- Link to per-project configuration
 
-### Settings (`/settings`)
-- **LLM Providers**: detected env vars status, "Test Connection" buttons
-- **GitHub**: GitHub App connection status, installed repos, re-auth button
-- **Environment**: default environment type (local/sprite), local workspace root path
-- **Authentication**: admin password status (set via env var)
-- **Persistence**: database connection info (read-only display)
+- enable/disable Issue Bot per project
+- webhook trigger status
+- approval policy display
 
-## LiveView Real-Time Requirements
+### Settings Security (`/settings/security`)
 
-| Page | PubSub Topic | Events |
-|------|-------------|--------|
-| Dashboard | `"jido_code:runs"` | Run started, completed, failed |
-| Run Detail | `"forge:session:<id>"` | Output chunks, status changes, needs_input |
-| Run Detail | `"jido_code:run:<id>"` | Step transitions, approval requests, artifacts |
-| Projects | `"jido_code:projects"` | Project sync status, webhook events |
+- security playbook links
+- secret lifecycle actions
+- token/key status
+- audit trail summary links
 
-## Key UI Components
+### Settings API (`/settings/api`)
 
-| Component | Purpose |
-|-----------|---------|
-| `RunTimeline` | Vertical step-by-step execution timeline |
-| `OutputStream` | Scrolling live output with ANSI color support |
-| `ApprovalGate` | Inline approve/reject UI for human-in-the-loop |
-| `DiffViewer` | Side-by-side or unified diff display (Phase 2+) |
-| `SecretsForm` | Masked input fields for API keys with test buttons |
-| `RepoSelector` | GitHub repo picker (fetches from App installation) |
-| `StatusBadge` | Colored status indicator (running, done, failed, etc.) |
-| `CostDisplay` | LLM cost tracking per run/step |
+- RPC endpoint status
+- action inventory version
+- generated TS client status
 
-## Layout
+## Live Real-Time Requirements
 
-All pages use `<Layouts.app flash={@flash} current_scope={@current_scope}>` as the root wrapper.
+| Page | Topic | Events |
+|---|---|---|
+| Run detail | `jido_code:run:<id>` | step transitions, approval, completion |
+| Run detail | `forge:session:<id>` | streaming output and session status |
+| Dashboard | `jido_code:runs` | run started/completed/failed |
+| Workbench | `jido_code:workbench` | project issue/PR updates, run kickoff state |
+| Agents | `jido_code:agents` | issue bot trigger and run outcomes |
 
-Navigation sidebar:
-- Dashboard
-- Projects
-- Workflows
-- Agents
-- Settings
+## UX Rules
 
-## Authentication Flow
+1. All mutating actions expose explicit confirmation/error states.
+2. Approval decisions show context summary and policy warnings.
+3. Security-relevant failures are clear and actionable.
+4. Critical controls include stable DOM IDs for LiveView tests.
 
-- If `JIDO_CODE_ADMIN_PASSWORD` env var is set: `Plug.BasicAuth` on all routes
-- If not set: all routes are open (single-user, local machine assumption)
-- No session-based login; basic auth is stateless per request
-- The onboarding wizard is accessible without auth (chicken-and-egg: you set the password during setup)
+## Naming Rule
+
+All UI copy and route docs must use `JidoCode` as the product name.

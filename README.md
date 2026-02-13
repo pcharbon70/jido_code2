@@ -1,8 +1,8 @@
-# Jido Code (alpha)
+# JidoCode (alpha)
 
 [![CI](https://github.com/agentjido/jido_code/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_code/actions/workflows/ci.yml)
 
-Jido Code is an **Elixir/Phoenix + LiveView** application exploring a practical "AI coding orchestrator" built on the [Jido](https://github.com/agentjido/jido) agent runtime.
+JidoCode is an **Elixir/Phoenix + LiveView** application exploring a practical "AI coding orchestrator" built on the [Jido](https://github.com/agentjido/jido) agent runtime.
 
 Today, the repo contains two substantial, working showcases:
 
@@ -33,7 +33,7 @@ Forge is a parallel execution subsystem with proper OTP structure:
 - **Persistence + observability**: Ash resources for session events, PubSub broadcasting on `forge:sessions` and `forge:session:<id>`
 - **LiveView UI**: session list, creation form, and a real terminal UI with streaming output, iteration controls, input prompts, and colocated JS hooks for scrolling + command history
 
-See [`FORGE_OVERVIEW.md`](FORGE_OVERVIEW.md) for the full architecture.
+See [`specs/FORGE_OVERVIEW.md`](specs/FORGE_OVERVIEW.md) for the full architecture.
 
 ### GitHub Issue Bot: Multi-Agent Jido Showcase
 
@@ -83,7 +83,7 @@ A separate demo domain showcasing `Jido.AI.ReActAgent`:
 - Dashboard is a stub
 - Test coverage is sparse (9 test files, mostly Issue Bot + controller tests)
 
-See [`specs/current_status.md`](specs/current_status.md) for the detailed gap analysis.
+See [`specs/03_decisions_and_invariants.md`](specs/03_decisions_and_invariants.md) and [`specs/02_requirements_and_scope.md`](specs/02_requirements_and_scope.md) for the canonical planning baseline.
 
 ---
 
@@ -187,9 +187,9 @@ specs/                          # PRD & design documents
 
 ## Documentation
 
-- [`FORGE_OVERVIEW.md`](FORGE_OVERVIEW.md) — Forge architecture deep dive
+- [`specs/FORGE_OVERVIEW.md`](specs/FORGE_OVERVIEW.md) — Forge architecture deep dive
 - [`specs/`](specs/) — Product specs and PRD
-- [`specs/current_status.md`](specs/current_status.md) — Verified gap analysis
+- [`specs/03_decisions_and_invariants.md`](specs/03_decisions_and_invariants.md) — Cross-spec source of truth
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — Contribution guidelines
 - [`CHANGELOG.md`](CHANGELOG.md) — Version history
 
