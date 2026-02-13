@@ -5,6 +5,7 @@ defmodule JidoCodeWeb.SetupLive do
   alias JidoCode.Accounts.User
   alias JidoCode.Setup.OwnerBootstrap
   alias JidoCode.Setup.PrerequisiteChecks
+  alias JidoCode.Setup.RuntimeMode
   alias JidoCode.Setup.SystemConfig
 
   @wizard_steps %{
@@ -209,11 +210,13 @@ defmodule JidoCodeWeb.SetupLive do
   def handle_event("bootstrap_owner", %{"owner" => owner_params}, socket) do
     case OwnerBootstrap.bootstrap(owner_params) do
       {:ok, owner_bootstrap_result} ->
-        step_state = %{
-          "validated_note" => owner_bootstrap_result.validated_note,
-          "owner_email" => to_string(owner_bootstrap_result.owner.email),
-          "owner_mode" => Atom.to_string(owner_bootstrap_result.owner_mode)
-        }
+        step_state =
+          %{
+            "validated_note" => owner_bootstrap_result.validated_note,
+            "owner_email" => to_string(owner_bootstrap_result.owner.email),
+            "owner_mode" => Atom.to_string(owner_bootstrap_result.owner_mode)
+          }
+          |> maybe_mark_registration_lockout()
 
         case SystemConfig.save_step_progress(step_state) do
           {:ok, %SystemConfig{} = config} ->
@@ -477,6 +480,14 @@ defmodule JidoCodeWeb.SetupLive do
   defp owner_submit_label(:create), do: "Create owner account"
   defp owner_submit_label(:confirm), do: "Confirm owner account"
   defp owner_submit_label(_mode), do: "Continue"
+
+  defp maybe_mark_registration_lockout(step_state) do
+    if RuntimeMode.production?() do
+      Map.put(step_state, "registration_actions_disabled", true)
+    else
+      step_state
+    end
+  end
 
   defp owner_sign_in_with_token_path(token) do
     strategy = Info.strategy!(User, :password)

@@ -15,6 +15,7 @@ defmodule JidoCodeWeb.SetupLiveTest do
     original_saver = Application.get_env(:jido_code, :system_config_saver, :__missing__)
     original_config = Application.get_env(:jido_code, :system_config, :__missing__)
     original_checker = Application.get_env(:jido_code, :setup_prerequisite_checker, :__missing__)
+    original_runtime_mode = Application.get_env(:jido_code, :runtime_mode, :__missing__)
 
     original_timeout =
       Application.get_env(:jido_code, :setup_prerequisite_timeout_ms, :__missing__)
@@ -25,11 +26,13 @@ defmodule JidoCodeWeb.SetupLiveTest do
       restore_env(:system_config, original_config)
       restore_env(:setup_prerequisite_checker, original_checker)
       restore_env(:setup_prerequisite_timeout_ms, original_timeout)
+      restore_env(:runtime_mode, original_runtime_mode)
     end)
 
     Application.delete_env(:jido_code, :system_config_loader)
     Application.delete_env(:jido_code, :system_config_saver)
     Application.delete_env(:jido_code, :setup_prerequisite_timeout_ms)
+    Application.put_env(:jido_code, :runtime_mode, :test)
 
     Application.put_env(:jido_code, :system_config, %{
       onboarding_completed: false,
@@ -245,6 +248,95 @@ defmodule JidoCodeWeb.SetupLiveTest do
 
     persisted_config = Application.get_env(:jido_code, :system_config)
     assert Map.fetch!(persisted_config, :onboarding_step) == 2
+  end
+
+  test "production step 2 marks registration actions disabled and keeps owner login available while blocking registration",
+       %{conn: conn} do
+    Application.put_env(:jido_code, :runtime_mode, :prod)
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 2,
+      onboarding_state: %{"1" => %{"validated_note" => "Prerequisite checks passed"}}
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    view
+    |> form("#setup-owner-bootstrap-form", %{
+      "owner" => %{
+        "email" => "owner@example.com",
+        "password" => "owner-password-123",
+        "password_confirmation" => "owner-password-123"
+      }
+    })
+    |> render_submit()
+
+    auth_redirect_path =
+      view
+      |> assert_redirect()
+      |> redirect_path()
+
+    authed_response = build_conn() |> get(auth_redirect_path)
+    assert redirected_to(authed_response, 302) == "/"
+
+    strategy = Info.strategy!(User, :password)
+
+    assert {:ok, _owner} =
+             Strategy.action(
+               strategy,
+               :sign_in,
+               %{"email" => "owner@example.com", "password" => "owner-password-123"},
+               context: %{token_type: :sign_in}
+             )
+
+    assert {:error, %Ash.Error.Forbidden{} = error} =
+             Strategy.action(
+               strategy,
+               :register,
+               %{
+                 "email" => "another-user@example.com",
+                 "password" => "owner-password-123",
+                 "password_confirmation" => "owner-password-123"
+               },
+               context: %{token_type: :sign_in}
+             )
+
+    assert Enum.any?(error.errors, &match?(%Ash.Error.Forbidden.Policy{}, &1))
+    assert_owner_count(1)
+
+    assert %{
+             onboarding_step: 3,
+             onboarding_state: %{
+               "2" => %{
+                 "owner_email" => "owner@example.com",
+                 "owner_mode" => "created",
+                 "registration_actions_disabled" => true,
+                 "validated_note" => "Owner account bootstrapped."
+               }
+             }
+           } = Application.get_env(:jido_code, :system_config)
+  end
+
+  test "production registration request fails with a typed authorization error once owner exists" do
+    Application.put_env(:jido_code, :runtime_mode, :prod)
+    register_owner("owner@example.com", "owner-password-123")
+
+    strategy = Info.strategy!(User, :password)
+
+    assert {:error, %Ash.Error.Forbidden{} = error} =
+             Strategy.action(
+               strategy,
+               :register,
+               %{
+                 "email" => "blocked-user@example.com",
+                 "password" => "owner-password-123",
+                 "password_confirmation" => "owner-password-123"
+               },
+               context: %{token_type: :sign_in}
+             )
+
+    assert Enum.any?(error.errors, &match?(%Ash.Error.Forbidden.Policy{}, &1))
   end
 
   test "step 1 timeout keeps onboarding blocked and does not persist downstream data", %{

@@ -279,7 +279,7 @@ defmodule JidoCode.Accounts.User do
 
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
-      authorize_if always()
+      authorize_if JidoCode.Accounts.Checks.RegistrationAllowed
     end
   end
 
