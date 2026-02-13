@@ -295,3 +295,139 @@ Excluding tags: [:sprite_integration]
 .......
 Finished in 1.3 seconds (0.2s async, 1.1s sync)
 24 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `lib/jido_code/setup/system_config.ex`: added persisted `onboarding_state`, step-save API `save_step_progress/1`, saver callback support (`:system_config_saver`), and retry-safe save errors.
+- `lib/jido_code_web/live/setup_live.ex`: `/setup` now loads persisted step/state on mount, submits step progress via `save_step`, stays on current step on save failure, and renders persisted validated state.
+- `test/jido_code_web/live/setup_live_test.exs`: added LiveView tests for progression/resume and failure retry behavior.
+
+2) tests/commands executed
+- `mix test test/jido_code_web/live/setup_live_test.exs`
+- `mix test test/jido_code_web/live/home_live_test.exs test/jido_code_web/controllers/page_controller_test.exs`
+- `mix test`
+- `mix compile --warnings-as-errors`
+- `MIX_OS_CONCURRENCY_LOCK=0 mix deps.unlock --unused`
+- formatter verification for changed files via `elixir -e ... Code.format_file!...`
+- Attempted (failed due environment): `mix precommit`, `MIX_NO_PUBSUB=1 mix precommit`, `MIX_OS_CONCURRENCY_LOCK=0 mix precommit`
+
+3) acceptance criteria coverage
+- AC1: each successful wizard step updates persisted `onboarding_step` via `SystemConfig.save_step_progress/1` and default saver (`Application.put_env`) in `lib/jido_code/setup/system_config.ex:39` and `lib/jido_code/setup/system_config.ex:72`.
+- AC2: reopening `/setup` resumes from persisted step/state loaded from `SystemConfig` in `lib/jido_code_web/live/setup_live.ex:21`; verified in `test/jido_code_web/live/setup_live_test.exs:29`.
+- AC3: on save failure, LiveView keeps same step and shows retry-safe error (`#setup-save-error`) in `lib/jido_code_web/live/setup_live.ex:126`; verified in `test/jido_code_web/live/setup_live_test.exs:60`.
+
+4) blockers/assumptions
+- Blocker: `mix precommit` cannot run in this sandbox because Mix PubSub TCP socket startup fails with `:eperm` (from `Mix.Sync.PubSub.subscribe/1`).  
+- Assumption: for this MVP story, persistence is backed by existing `Application` env `:system_config` (plus pluggable loader/saver callbacks), since Ash `SystemConfig` resource storage is not yet implemented in this repo.
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 512727, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+....**16:43:03.029 request_id=GJPvp-glU2P_dcQAAADi [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+...warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+.warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+warning: Duplicate id found while testing LiveView: toast-group
+
+    <div id="toast-group" class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"><div id="toast-group"></div></div>
+    <div id="toast-group"></div>
+
+
+LiveView requires that all elements have unique ids, duplicate IDs will cause
+undefined behavior at runtime, as DOM patching will not be able to target the correct
+elements.
+
+
+.....16:43:03.644 [warning] Quality checks failed for test-retry-488 (attempt 1/3), retrying...
+16:43:03.648 [warning] Quality checks failed for test-retry-488 (attempt 2/3), retrying...
+....16:43:03.842 [warning] Quality checks failed for test-fail-4903 (attempt 1/3), retrying...
+16:43:03.846 [warning] Quality checks failed for test-fail-4903 (attempt 2/3), retrying...
+16:43:03.851 [error] Quality checks failed for test-fail-4903 after 3 attempts, giving up
+16:43:03.852 [warning] Pull request failed for test-fail-4903 after 3 attempts
+.......
+Finished in 1.5 seconds (0.2s async, 1.3s sync)
+26 tests, 0 failures, 2 skipped (4 excluded)
