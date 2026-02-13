@@ -21,7 +21,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.Actions.CodeSearchAction do
   ## Current Behavior (Stub)
 
   Returns mock results based on issue keywords.
-  TODO: Integrate with GitHub Code Search API or local git grep.
+  Planned: Integrate with GitHub Code Search API or local git grep.
   """
   use Jido.Action,
     name: "code_search",
@@ -44,7 +44,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.Actions.CodeSearchAction do
     classification = Map.get(triage, :classification, :unknown)
 
     # Stub: Generate mock search results
-    # TODO: Replace with actual GitHub Code Search API calls
+    # Planned: Replace with actual GitHub Code Search API calls
     result = %{
       keywords: keywords,
       classification: classification,

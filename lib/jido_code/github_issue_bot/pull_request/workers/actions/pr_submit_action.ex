@@ -22,7 +22,7 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.Actions.PRSubmitAction do
   ## Current Behavior (Stub)
 
   Returns mock PR data with generated title and URL.
-  TODO: Integrate with GitHub API to create actual PRs.
+  Planned: integrate with GitHub API to create actual PRs.
   """
   use Jido.Action,
     name: "pr_submit",
@@ -57,9 +57,10 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.Actions.PRSubmitAction do
     # Use branch from patch result if available
     branch_name = Map.get(patch, :branch_name, "fix/issue-#{issue_number}")
 
-    # Stub: Generate mock PR data
-    # TODO: Replace with actual GitHub API calls
+    # Stub: Generate mock PR data.
+    # Planned: replace with actual GitHub API calls.
     pr_number = generate_pr_number()
+
     result = %{
       pr_number: pr_number,
       pr_url: "https://github.com/#{repo}/pull/#{pr_number}",
@@ -118,7 +119,10 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.Actions.PRSubmitAction do
     classification = Map.get(triage, :classification, :unknown)
     root_cause = get_in(research, [:root_cause, :hypothesis]) || "See research findings"
 
-    attempt_note = if attempt > 1, do: "\n\n> **Note**: This fix required #{attempt} iterations to pass all quality checks.", else: ""
+    attempt_note =
+      if attempt > 1,
+        do: "\n\n> **Note**: This fix required #{attempt} iterations to pass all quality checks.",
+        else: ""
 
     """
     ## Summary

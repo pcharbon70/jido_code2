@@ -33,18 +33,17 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
   @impl true
   def init(client, config) do
     with :ok <- setup_directories(client),
-         :ok <- setup_claude_settings(client, config),
-         :ok <- setup_templates(client, config) do
-      :ok
+         :ok <- setup_claude_settings(client, config) do
+      setup_templates(client, config)
     end
   end
 
   @impl true
   def run_iteration(client, state, opts) do
-    model = opts[:model] || state[:model] || "claude-sonnet-4-20250514"
-    max_turns = opts[:max_turns] || state[:max_turns] || 200
-    max_budget = opts[:max_budget] || state[:max_budget] || 10.0
-    prompt = opts[:prompt] || state[:prompt]
+    model = resolve_option(opts, state, :model, "claude-sonnet-4-20250514")
+    max_turns = resolve_option(opts, state, :max_turns, 200)
+    max_budget = resolve_option(opts, state, :max_budget, 10.0)
+    prompt = resolve_option(opts, state, :prompt, nil)
 
     cmd = build_claude_command(model, max_turns, max_budget, prompt)
 
@@ -58,10 +57,16 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
          %{
            status: :error,
            output: output,
+           summary: nil,
+           question: nil,
            error: "Claude exited with code #{code}",
            metadata: %{exit_code: code}
          }}
     end
+  end
+
+  defp resolve_option(opts, state, key, default) do
+    Keyword.get(opts, key) || Map.get(state, key) || default
   end
 
   @impl true
@@ -115,9 +120,8 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
   end
 
   defp setup_templates(client, config) do
-    with :ok <- maybe_write_template(client, config, :prompt_template, "iterate.md"),
-         :ok <- maybe_write_template(client, config, :context_template, "context.md") do
-      :ok
+    with :ok <- maybe_write_template(client, config, :prompt_template, "iterate.md") do
+      maybe_write_template(client, config, :context_template, "context.md")
     end
   end
 
@@ -178,13 +182,15 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
 
     cond do
       is_nil(last_event) ->
-        %{status: :done, output: output, metadata: %{}}
+        %{status: :done, output: output, summary: nil, question: nil, error: nil, metadata: %{}}
 
       last_event["type"] == "result" && last_event["subtype"] == "success" ->
         %{
           status: :done,
           output: output,
           summary: last_event["result"],
+          question: nil,
+          error: nil,
           metadata: %{
             cost_usd: last_event["cost_usd"],
             duration_ms: last_event["duration_ms"],
@@ -197,11 +203,13 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
           status: :continue,
           output: output,
           summary: "Max turns reached",
+          question: nil,
+          error: nil,
           metadata: %{cost_usd: last_event["cost_usd"]}
         }
 
       true ->
-        %{status: :done, output: output, metadata: %{}}
+        %{status: :done, output: output, summary: nil, question: nil, error: nil, metadata: %{}}
     end
   end
 

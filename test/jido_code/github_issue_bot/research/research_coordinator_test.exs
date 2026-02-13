@@ -134,7 +134,7 @@ defmodule JidoCode.GithubIssueBotTest.Research.ResearchCoordinatorTest do
 
       # Should have extracted keywords
       assert is_list(code_search.keywords)
-      assert length(code_search.keywords) > 0
+      assert code_search.keywords != []
 
       # Should have found files (mock)
       assert is_list(code_search.files)

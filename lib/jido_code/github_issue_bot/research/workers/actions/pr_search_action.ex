@@ -22,7 +22,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.Actions.PRSearchAction do
   ## Current Behavior (Stub)
 
   Returns mock search results.
-  TODO: Use GitHub Search API to find actual related PRs/issues.
+  Planned: Use GitHub Search API to find actual related PRs/issues.
   """
   use Jido.Action,
     name: "pr_search",
@@ -45,7 +45,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.Actions.PRSearchAction do
     classification = Map.get(triage, :classification, :unknown)
 
     # Mock search results (stub implementation)
-    # TODO: Replace with actual GitHub API calls
+    # Planned: Replace with actual GitHub API calls
     result = %{
       repo: repo,
       search_terms: extract_search_terms(title),

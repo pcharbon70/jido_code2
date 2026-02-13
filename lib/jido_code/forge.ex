@@ -157,34 +157,72 @@ defmodule JidoCode.Forge do
 
   defp do_run_loop(session_id, opts, max_iterations, iteration, return_error_result?) do
     case run_iteration(session_id, opts) do
-      {:ok, %{status: :done} = result} ->
-        {:ok, result}
-
-      {:ok, %{status: :needs_input} = result} ->
-        {:ok, result}
-
-      {:ok, %{status: :blocked} = result} ->
-        {:ok, result}
-
-      {:ok, %{status: :error} = result} ->
-        if return_error_result? do
-          {:ok, result}
-        else
-          {:error, {:iteration_error, result}}
-        end
-
-      {:ok, %{continue: true} = _result} ->
-        do_run_loop(session_id, opts, max_iterations, iteration + 1, return_error_result?)
-
-      {:ok, %{status: :continue} = _result} ->
-        do_run_loop(session_id, opts, max_iterations, iteration + 1, return_error_result?)
-
       {:ok, result} ->
-        {:ok, result}
+        resolve_iteration_result(result, session_id, opts, max_iterations, iteration, return_error_result?)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp resolve_iteration_result(
+         %{status: status} = result,
+         _session_id,
+         _opts,
+         _max_iterations,
+         _iteration,
+         _return_error_result?
+       )
+       when status in [:done, :needs_input, :blocked] do
+    {:ok, result}
+  end
+
+  defp resolve_iteration_result(
+         %{status: :error} = result,
+         _session_id,
+         _opts,
+         _max_iterations,
+         _iteration,
+         return_error_result?
+       ) do
+    if return_error_result? do
+      {:ok, result}
+    else
+      {:error, {:iteration_error, result}}
+    end
+  end
+
+  defp resolve_iteration_result(
+         %{continue: true},
+         session_id,
+         opts,
+         max_iterations,
+         iteration,
+         return_error_result?
+       ) do
+    do_run_loop(session_id, opts, max_iterations, iteration + 1, return_error_result?)
+  end
+
+  defp resolve_iteration_result(
+         %{status: :continue},
+         session_id,
+         opts,
+         max_iterations,
+         iteration,
+         return_error_result?
+       ) do
+    do_run_loop(session_id, opts, max_iterations, iteration + 1, return_error_result?)
+  end
+
+  defp resolve_iteration_result(
+         result,
+         _session_id,
+         _opts,
+         _max_iterations,
+         _iteration,
+         _return_error_result?
+       ) do
+    {:ok, result}
   end
 
   # Session lifecycle operations

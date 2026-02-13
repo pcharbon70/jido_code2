@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.Research.Workers.CodeSearchAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Worker agent that searches for relevant code in the repository.
 
@@ -26,7 +27,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.CodeSearchAgent do
 
   alias JidoCode.GithubIssueBot.Research.Workers.Actions.CodeSearchAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"code_search.request", CodeSearchAction}]
   end
 end

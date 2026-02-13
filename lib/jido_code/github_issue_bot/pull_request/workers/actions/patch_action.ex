@@ -22,7 +22,7 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.Actions.PatchAction do
   ## Current Behavior (Stub)
 
   Returns mock patch data based on issue details.
-  TODO: Integrate with AI code generation and GitHub API.
+  Planned: integrate with AI code generation and GitHub API.
   """
   use Jido.Action,
     name: "patch",
@@ -55,8 +55,8 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.Actions.PatchAction do
     issue_number = Map.get(issue, :number, 0)
     classification = Map.get(triage, :classification, :unknown)
 
-    # Stub: Generate mock patch data
-    # TODO: Replace with actual code generation and git operations
+    # Stub: Generate mock patch data.
+    # Planned: replace with actual code generation and git operations.
     # On retry, we might modify approach based on previous failures
     result = %{
       branch_name: "fix/issue-#{issue_number}",

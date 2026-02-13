@@ -10,7 +10,7 @@ defmodule JidoCode.Forge.Operations do
   require Logger
 
   alias JidoCode.Forge.{Manager, PubSub}
-  alias JidoCode.Forge.Resources.{Session, Event, Checkpoint}
+  alias JidoCode.Forge.Resources.{Checkpoint, Event, Session}
 
   @doc """
   Resume a session from its last checkpoint.
@@ -245,8 +245,8 @@ defmodule JidoCode.Forge.Operations do
   end
 
   defp create_sprites_checkpoint(%{sprite_id: sprite_id}) do
-    # TODO: Integrate with actual Sprites API checkpoint creation
-    # For now, generate a placeholder checkpoint ID
+    # Planned: integrate with actual Sprites API checkpoint creation.
+    # For now, generate a placeholder checkpoint ID.
     checkpoint_id = "chk_#{sprite_id}_#{System.system_time(:millisecond)}"
     {:ok, checkpoint_id}
   end

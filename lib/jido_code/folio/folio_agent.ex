@@ -1,4 +1,5 @@
 defmodule JidoCode.Folio.FolioAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   GTD (Getting Things Done) task manager agent using ReActAgent.
 

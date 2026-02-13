@@ -22,9 +22,9 @@ defmodule JidoCode.GithubIssueBot.Research.Actions.StartResearchAction do
 
   alias JidoCode.GithubIssueBot.Research.Workers.{
     CodeSearchAgent,
+    PRSearchAgent,
     ReproductionAgent,
-    RootCauseAgent,
-    PRSearchAgent
+    RootCauseAgent
   }
 
   require Logger

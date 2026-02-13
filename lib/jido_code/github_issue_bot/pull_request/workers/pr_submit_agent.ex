@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.PullRequest.Workers.PRSubmitAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Worker agent that creates the pull request on GitHub.
 
@@ -29,7 +30,7 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.PRSubmitAgent do
 
   alias JidoCode.GithubIssueBot.PullRequest.Workers.Actions.PRSubmitAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"pr_submit.request", PRSubmitAction}]
   end
 end

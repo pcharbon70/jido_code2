@@ -1,4 +1,5 @@
 defmodule JidoCode.GitHub.WebhookDelivery do
+  @moduledoc false
   use Ash.Resource,
     otp_app: :jido_code,
     domain: JidoCode.GitHub,

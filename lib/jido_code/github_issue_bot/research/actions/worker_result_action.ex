@@ -105,16 +105,15 @@ defmodule JidoCode.GithubIssueBot.Research.Actions.WorkerResultAction do
      }, List.wrap(emit_directive)}
   end
 
-  # Simple summary synthesis - concatenates worker summaries
-  # TODO: Could use LLM to synthesize a coherent narrative
+  # Simple summary synthesis - concatenates worker summaries.
+  # Planned: use LLM synthesis for a more coherent narrative.
   defp synthesize_summary(worker_results) do
     parts =
       worker_results
-      |> Enum.map(fn {worker, result} ->
+      |> Enum.map_join("; ", fn {worker, result} ->
         summary = Map.get(result, :summary, "No summary")
         "#{worker}: #{summary}"
       end)
-      |> Enum.join("; ")
 
     "Research complete. #{parts}"
   end

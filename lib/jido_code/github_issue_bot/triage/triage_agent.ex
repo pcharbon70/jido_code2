@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.Triage.TriageAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Triage agent that classifies issues.
 
@@ -15,7 +16,7 @@ defmodule JidoCode.GithubIssueBot.Triage.TriageAgent do
 
   alias JidoCode.GithubIssueBot.Triage.Actions.TriageAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"triage.request", TriageAction}]
   end
 end

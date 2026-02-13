@@ -48,7 +48,8 @@ defmodule JidoCode.Forge.Runner do
 
   Called when the runner is in `:needs_input` status and input has been provided.
   """
-  @callback apply_input(sprite_client(), input(), state()) :: :ok | {:error, term()}
+  @callback apply_input(sprite_client(), input(), state()) ::
+              :ok | {:ok, state()} | {:error, term()}
 
   @doc """
   Handle streaming output from the sprite.

@@ -101,7 +101,8 @@ defmodule JidoCodeWeb.Forge.ShowLive do
     end
   end
 
-  def handle_info({:terminal_exec_result, {output, exit_code}}, socket) do
+  def handle_info({:terminal_exec_result, {output, exit_code}}, socket)
+      when is_binary(output) and is_integer(exit_code) do
     socket =
       output
       |> String.split("\n", trim: true)
@@ -177,42 +178,43 @@ defmodule JidoCodeWeb.Forge.ShowLive do
     if command == "" do
       {:noreply, socket}
     else
-      socket =
-        stream_insert(socket, :output, %{
-          id: uniq_line_id(),
-          kind: :cmd,
-          text: "$ " <> command
-        })
-
-      session_id = socket.assigns.session_id
-      lv_pid = self()
-      is_needs_input = socket.assigns.status.state == :needs_input
-
-      Task.start(fn ->
-        result =
-          if is_needs_input do
-            case Forge.apply_input(session_id, command) do
-              :ok -> {:applied, command}
-              error -> error
-            end
-          else
-            Forge.exec(session_id, command)
-          end
-
-        send(lv_pid, {:terminal_exec_result, result})
-      end)
-
-      socket =
-        if is_needs_input do
-          socket
-          |> assign(:input_prompt, nil)
-        else
-          socket
-        end
-
-      {:noreply, socket}
+      {:noreply, run_terminal_command(socket, command)}
     end
   end
+
+  defp run_terminal_command(socket, command) do
+    session_id = socket.assigns.session_id
+    lv_pid = self()
+    needs_input? = socket.assigns.status.state == :needs_input
+
+    socket =
+      stream_insert(socket, :output, %{
+        id: uniq_line_id(),
+        kind: :cmd,
+        text: "$ " <> command
+      })
+
+    Task.start(fn ->
+      result = execute_terminal_command(session_id, command, needs_input?)
+      send(lv_pid, {:terminal_exec_result, result})
+    end)
+
+    maybe_clear_input_prompt(socket, needs_input?)
+  end
+
+  defp execute_terminal_command(session_id, command, true) do
+    case Forge.apply_input(session_id, command) do
+      :ok -> {:applied, command}
+      error -> error
+    end
+  end
+
+  defp execute_terminal_command(session_id, command, false) do
+    Forge.exec(session_id, command)
+  end
+
+  defp maybe_clear_input_prompt(socket, true), do: assign(socket, :input_prompt, nil)
+  defp maybe_clear_input_prompt(socket, false), do: socket
 
   @impl true
   def render(assigns) do

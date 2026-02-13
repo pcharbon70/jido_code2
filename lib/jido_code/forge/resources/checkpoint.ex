@@ -1,4 +1,5 @@
 defmodule JidoCode.Forge.Resources.Checkpoint do
+  @moduledoc false
   use Ash.Resource,
     otp_app: :jido_code,
     domain: JidoCode.Forge.Domain,

@@ -171,25 +171,35 @@ defmodule JidoCode.Forge.SpriteClient.Fake do
     ensure_agent_started(agent_pid)
     sprites = Agent.get(agent_pid, & &1)
 
-    case Map.keys(sprites) do
-      [sprite_id | _] ->
-        Agent.update(agent_pid, fn sprites ->
-          update_in(sprites, [sprite_id, :env], fn existing_env ->
-            # Normalize all env values to strings (binaries)
-            normalized_map =
-              env_map
-              |> Enum.map(fn {k, v} -> {to_binary_string(k), to_binary_string(v)} end)
-              |> Map.new()
-
-            Map.merge(existing_env || %{}, normalized_map)
-          end)
-        end)
-
+    case first_sprite_id(sprites) do
+      {:ok, sprite_id} ->
+        Agent.update(agent_pid, &merge_sprite_env(&1, sprite_id, env_map))
         :ok
 
-      [] ->
+      :error ->
         {:error, :no_sprite}
     end
+  end
+
+  defp first_sprite_id(sprites) do
+    case Map.keys(sprites) do
+      [sprite_id | _] -> {:ok, sprite_id}
+      [] -> :error
+    end
+  end
+
+  defp merge_sprite_env(sprites, sprite_id, env_map) do
+    normalized_map = normalize_env_map(env_map)
+
+    update_in(sprites, [sprite_id, :env], fn existing_env ->
+      Map.merge(existing_env || %{}, normalized_map)
+    end)
+  end
+
+  defp normalize_env_map(env_map) do
+    env_map
+    |> Enum.map(fn {k, v} -> {to_binary_string(k), to_binary_string(v)} end)
+    |> Map.new()
   end
 
   @impl true

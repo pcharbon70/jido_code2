@@ -1,4 +1,5 @@
 defmodule JidoCode.Demos.ChatAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   AI chat assistant with tools using ReActAgent.
 

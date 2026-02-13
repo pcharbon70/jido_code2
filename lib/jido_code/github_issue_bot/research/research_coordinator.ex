@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.Research.ResearchCoordinator do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Research coordinator that fans out to specialized worker agents.
 
@@ -45,11 +46,11 @@ defmodule JidoCode.GithubIssueBot.Research.ResearchCoordinator do
 
   alias JidoCode.GithubIssueBot.Research.Actions.{
     StartResearchAction,
-    WorkerStartedAction,
-    WorkerResultAction
+    WorkerResultAction,
+    WorkerStartedAction
   }
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [
       # Receive research request from parent coordinator
       {"research.request", StartResearchAction},

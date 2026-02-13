@@ -119,7 +119,7 @@ defmodule JidoCode.GithubIssueBot.CLI.Run do
 
     Enum.each(artifacts, fn {name, artifact} ->
       IO.puts("\n--- #{name} ---")
-      IO.inspect(artifact, pretty: true, limit: :infinity)
+      IO.puts(inspect(artifact, pretty: true, limit: :infinity))
     end)
   end
 
@@ -132,9 +132,12 @@ defmodule JidoCode.GithubIssueBot.CLI.Run do
       print_artifacts(state.artifacts)
     end
 
-    if length(state.errors) > 0 do
+    if state.errors != [] do
       IO.puts("\n--- Errors ---")
-      Enum.each(state.errors, &IO.inspect/1)
+
+      Enum.each(state.errors, fn error ->
+        IO.puts(inspect(error, pretty: true, limit: :infinity))
+      end)
     end
   end
 end

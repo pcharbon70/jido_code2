@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.PullRequest.Workers.PatchAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Worker agent that implements the code fix for an issue.
 
@@ -30,7 +31,7 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.PatchAgent do
 
   alias JidoCode.GithubIssueBot.PullRequest.Workers.Actions.PatchAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"patch.request", PatchAction}]
   end
 end

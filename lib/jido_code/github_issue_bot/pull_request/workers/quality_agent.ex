@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.PullRequest.Workers.QualityAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Worker agent that validates the code fix quality.
 
@@ -32,7 +33,7 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.QualityAgent do
 
   alias JidoCode.GithubIssueBot.PullRequest.Workers.Actions.QualityAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"quality.request", QualityAction}]
   end
 end

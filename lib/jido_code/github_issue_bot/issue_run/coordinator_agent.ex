@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.IssueRun.CoordinatorAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Coordinator agent for processing a single GitHub issue.
 
@@ -40,14 +41,14 @@ defmodule JidoCode.GithubIssueBot.IssueRun.CoordinatorAgent do
     ]
 
   alias JidoCode.GithubIssueBot.IssueRun.Actions.{
-    StartRunAction,
     ChildStartedAction,
-    TriageResultAction,
+    PullRequestResultAction,
     ResearchResultAction,
-    PullRequestResultAction
+    StartRunAction,
+    TriageResultAction
   }
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [
       # Phase 1: Start and triage
       {"issue.start", StartRunAction},

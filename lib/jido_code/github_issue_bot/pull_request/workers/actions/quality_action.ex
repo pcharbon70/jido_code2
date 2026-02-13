@@ -22,7 +22,7 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.Actions.QualityAction do
   ## Current Behavior (Stub)
 
   Returns mock quality results (usually passing).
-  TODO: Integrate with actual CI commands (mix test, mix credo, mix dialyzer).
+  Planned: integrate with actual CI commands (`mix test`, `mix credo`, `mix dialyzer`).
   """
   use Jido.Action,
     name: "quality",
@@ -49,8 +49,8 @@ defmodule JidoCode.GithubIssueBot.PullRequest.Workers.Actions.QualityAction do
 
     issue_number = Map.get(issue, :number, 0)
 
-    # Stub: Generate mock quality results
-    # TODO: Replace with actual CI command execution
+    # Stub: Generate mock quality results.
+    # Planned: replace with actual CI command execution.
     # Uses attempt number to make retries eventually succeed
     result = mock_quality_results(attempt, issue_number)
 

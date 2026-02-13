@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.Research.Workers.RootCauseAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Worker agent that hypothesizes the root cause of an issue.
 
@@ -28,7 +29,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.RootCauseAgent do
 
   alias JidoCode.GithubIssueBot.Research.Workers.Actions.RootCauseAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"root_cause.request", RootCauseAction}]
   end
 end

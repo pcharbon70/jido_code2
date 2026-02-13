@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.PullRequest.PullRequestCoordinator do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Pull Request coordinator that orchestrates the fix → validate → submit flow.
 
@@ -64,14 +65,14 @@ defmodule JidoCode.GithubIssueBot.PullRequest.PullRequestCoordinator do
     ]
 
   alias JidoCode.GithubIssueBot.PullRequest.Actions.{
-    StartPullRequestAction,
-    WorkerStartedAction,
     PatchResultAction,
+    PRSubmitResultAction,
     QualityResultAction,
-    PRSubmitResultAction
+    StartPullRequestAction,
+    WorkerStartedAction
   }
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [
       # Receive pull request request from parent coordinator
       {"pull_request.request", StartPullRequestAction},

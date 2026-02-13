@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.Research.Workers.PRSearchAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Worker agent that searches for related PRs and issues.
 
@@ -29,7 +30,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.PRSearchAgent do
 
   alias JidoCode.GithubIssueBot.Research.Workers.Actions.PRSearchAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"pr_search.request", PRSearchAction}]
   end
 end

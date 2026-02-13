@@ -38,7 +38,9 @@ defmodule JidoCode.Application do
   end
 
   defp forge_dev_children do
-    if Mix.env() in [:dev, :test] do
+    runtime_env = Application.get_env(:jido_code, :runtime_env, :prod)
+
+    if runtime_env in [:dev, :test] do
       [{JidoCode.Forge.SpriteClient.Fake, []}]
     else
       []

@@ -96,26 +96,30 @@ defmodule JidoCode.Error do
   # Helper functions
 
   @doc "Creates a validation error with optional details."
-  @spec validation_error(String.t(), map()) :: ValidationError.t()
+  @spec validation_error(String.t(), map()) :: Exception.t()
   def validation_error(message, details \\ %{}) do
-    ValidationError.exception(Map.merge(%{message: message}, details))
+    ValidationError.exception(details_to_opts(message, details))
   end
 
   @doc "Creates an invalid input error."
-  @spec invalid_input_error(String.t(), map()) :: InvalidInputError.t()
+  @spec invalid_input_error(String.t(), map()) :: Exception.t()
   def invalid_input_error(message, details \\ %{}) do
-    InvalidInputError.exception(Map.merge(%{message: message}, details))
+    InvalidInputError.exception(details_to_opts(message, details))
   end
 
   @doc "Creates an execution failure error."
-  @spec execution_error(String.t(), map()) :: ExecutionFailureError.t()
+  @spec execution_error(String.t(), map()) :: Exception.t()
   def execution_error(message, details \\ %{}) do
-    ExecutionFailureError.exception(Map.merge(%{message: message}, details))
+    ExecutionFailureError.exception(details_to_opts(message, details))
   end
 
   @doc "Creates a configuration error."
-  @spec config_error(String.t(), map()) :: ConfigurationError.t()
+  @spec config_error(String.t(), map()) :: Exception.t()
   def config_error(message, details \\ %{}) do
-    ConfigurationError.exception(Map.merge(%{message: message}, details))
+    ConfigurationError.exception(details_to_opts(message, details))
+  end
+
+  defp details_to_opts(message, details) when is_map(details) do
+    Keyword.merge([message: message], Map.to_list(details))
   end
 end

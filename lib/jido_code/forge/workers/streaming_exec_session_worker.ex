@@ -11,7 +11,7 @@ defmodule JidoCode.Forge.Workers.StreamingExecSessionWorker do
   require Logger
 
   alias JidoCode.Forge.PubSub, as: ForgePubSub
-  alias JidoCode.Forge.Resources.{ExecSession, Event}
+  alias JidoCode.Forge.Resources.{Event, ExecSession}
 
   @chunk_coalesce_ms 50
   @max_buffer_size 64 * 1024

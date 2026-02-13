@@ -88,48 +88,14 @@ defmodule JidoCode.Forge.Manager do
 
   @impl true
   def handle_call({:start_session, session_id, spec}, _from, state) do
-    runner_type = Map.get(spec, :runner) || Map.get(spec, :runner_type) || Map.get(spec, "runner_type") || :shell
+    runner_type = resolve_runner_type(spec)
 
-    cond do
-      MapSet.size(state.sessions) >= state.max_sessions ->
-        {:reply, {:error, :max_sessions_reached}, state}
+    case validate_start_request(state, runner_type) do
+      :ok ->
+        start_session_process(session_id, spec, runner_type, state)
 
-      Map.get(state.runner_counts, runner_type, 0) >=
-          Map.get(state.max_per_runner, runner_type, 100) ->
-        {:reply, {:error, {:runner_limit_reached, runner_type}}, state}
-
-      true ->
-        case Registry.lookup(@registry, session_id) do
-          [{pid, _}] ->
-            {:reply, {:error, {:already_started, pid}}, state}
-
-          [] ->
-            Persistence.record_session_started(session_id, spec)
-
-            child_spec = {SpriteSession, {session_id, spec, []}}
-
-            case DynamicSupervisor.start_child(@supervisor, child_spec) do
-              {:ok, pid} ->
-                Process.monitor(pid)
-                new_sessions = MapSet.put(state.sessions, session_id)
-                new_session_runners = Map.put(state.session_runners, session_id, runner_type)
-                new_runner_counts = Map.update(state.runner_counts, runner_type, 1, &(&1 + 1))
-
-                Logger.debug("Started session #{session_id} with pid #{inspect(pid)}")
-                ForgePubSub.broadcast_sessions({:session_started, session_id})
-
-                {:reply, {:ok, pid},
-                 %{
-                   state
-                   | sessions: new_sessions,
-                     session_runners: new_session_runners,
-                     runner_counts: new_runner_counts
-                 }}
-
-              {:error, reason} ->
-                {:reply, {:error, reason}, state}
-            end
-        end
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -150,6 +116,60 @@ defmodule JidoCode.Forge.Manager do
   def handle_call(:list_sessions, _from, state) do
     session_list = MapSet.to_list(state.sessions)
     {:reply, session_list, state}
+  end
+
+  defp resolve_runner_type(spec) do
+    Map.get(spec, :runner) || Map.get(spec, :runner_type) || Map.get(spec, "runner_type") || :shell
+  end
+
+  defp validate_start_request(state, runner_type) do
+    cond do
+      MapSet.size(state.sessions) >= state.max_sessions ->
+        {:error, :max_sessions_reached}
+
+      Map.get(state.runner_counts, runner_type, 0) >= Map.get(state.max_per_runner, runner_type, 100) ->
+        {:error, {:runner_limit_reached, runner_type}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp start_session_process(session_id, spec, runner_type, state) do
+    case Registry.lookup(@registry, session_id) do
+      [{pid, _}] ->
+        {:reply, {:error, {:already_started, pid}}, state}
+
+      [] ->
+        start_new_session(session_id, spec, runner_type, state)
+    end
+  end
+
+  defp start_new_session(session_id, spec, runner_type, state) do
+    Persistence.record_session_started(session_id, spec)
+    child_spec = {SpriteSession, {session_id, spec, []}}
+
+    case DynamicSupervisor.start_child(@supervisor, child_spec) do
+      {:ok, pid} ->
+        {:reply, {:ok, pid}, register_started_session(state, session_id, runner_type, pid)}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp register_started_session(state, session_id, runner_type, pid) do
+    Process.monitor(pid)
+
+    Logger.debug("Started session #{session_id} with pid #{inspect(pid)}")
+    ForgePubSub.broadcast_sessions({:session_started, session_id})
+
+    %{
+      state
+      | sessions: MapSet.put(state.sessions, session_id),
+        session_runners: Map.put(state.session_runners, session_id, runner_type),
+        runner_counts: Map.update(state.runner_counts, runner_type, 1, &(&1 + 1))
+    }
   end
 
   @impl true

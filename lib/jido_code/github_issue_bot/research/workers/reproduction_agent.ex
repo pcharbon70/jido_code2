@@ -1,4 +1,5 @@
 defmodule JidoCode.GithubIssueBot.Research.Workers.ReproductionAgent do
+  @dialyzer {:nowarn_function, plugin_specs: 0}
   @moduledoc """
   Worker agent that analyzes reproduction steps from the issue.
 
@@ -27,7 +28,7 @@ defmodule JidoCode.GithubIssueBot.Research.Workers.ReproductionAgent do
 
   alias JidoCode.GithubIssueBot.Research.Workers.Actions.ReproductionAction
 
-  def signal_routes do
+  def signal_routes(_ctx) do
     [{"reproduction.request", ReproductionAction}]
   end
 end

@@ -1,4 +1,5 @@
 defmodule JidoCode.Forge.Resources.Event do
+  @moduledoc false
   use Ash.Resource,
     otp_app: :jido_code,
     domain: JidoCode.Forge.Domain,

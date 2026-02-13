@@ -17,8 +17,9 @@ defmodule JidoCodeWeb.Components.CheckboxField do
   """
 
   use Phoenix.Component
-  alias Phoenix.LiveView.Utils
   alias Phoenix.HTML.Form
+  alias Phoenix.HTML.FormField
+  alias Phoenix.LiveView.Utils
   import JidoCodeWeb.Components.Icon, only: [icon: 1]
 
   @doc """
@@ -73,14 +74,14 @@ defmodule JidoCodeWeb.Components.CheckboxField do
   attr :name, :any, doc: "Name of input"
   attr :value, :any, doc: "Value of input"
 
-  attr :field, Phoenix.HTML.FormField, doc: "a form field struct retrieved from the form"
+  attr :field, FormField, doc: "a form field struct retrieved from the form"
 
   attr :rest, :global,
     include: ~w(autocomplete disabled form checked readonly required title autofocus),
     doc: "Global attributes can define defaults which are merged with attributes provided by the caller"
 
   @spec checkbox_field(map()) :: Phoenix.LiveView.Rendered.t()
-  def checkbox_field(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
+  def checkbox_field(%{field: %FormField{} = field} = assigns) do
     new_id = assigns.id || field.id
     errors = if Phoenix.Component.used_input?(field), do: field.errors, else: []
 
@@ -93,7 +94,7 @@ defmodule JidoCodeWeb.Components.CheckboxField do
     end)
     |> assign_new(:value, fn -> field.value end)
     |> assign_new(:checked, fn ->
-      Phoenix.HTML.Form.normalize_value("checkbox", assigns[:value])
+      Form.normalize_value("checkbox", assigns[:value])
     end)
     |> checkbox_field()
   end
@@ -195,11 +196,11 @@ defmodule JidoCodeWeb.Components.CheckboxField do
     attr :space, :string, required: false, doc: "Space between items"
   end
 
-  attr :field, Phoenix.HTML.FormField, doc: "a form field struct retrieved from the form"
+  attr :field, FormField, doc: "a form field struct retrieved from the form"
   slot :inner_block
 
   @spec group_checkbox(map()) :: Phoenix.LiveView.Rendered.t()
-  def group_checkbox(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
+  def group_checkbox(%{field: %FormField{} = field} = assigns) do
     errors = if Phoenix.Component.used_input?(field), do: field.errors, else: []
 
     assigns

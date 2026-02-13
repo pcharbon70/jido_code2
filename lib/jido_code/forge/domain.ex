@@ -1,4 +1,5 @@
 defmodule JidoCode.Forge.Domain do
+  @moduledoc false
   use Ash.Domain, otp_app: :jido_code, extensions: [AshAdmin.Domain]
 
   admin do

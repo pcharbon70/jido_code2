@@ -31,7 +31,10 @@ defmodule JidoCodeWeb.Router do
     pipe_through :browser
 
     ash_authentication_live_session :authenticated_routes,
-      on_mount: [{JidoCodeWeb.LiveUserAuth, :live_user_required}] do
+      on_mount: [
+        {JidoCodeWeb.LiveUserAuth, :live_user_required},
+        {JidoCodeWeb.LiveUserAuth, :ensure_onboarding_complete}
+      ] do
       live "/dashboard", DashboardLive, :index
       live "/settings", SettingsLive, :index
       live "/settings/:tab", SettingsLive, :index
@@ -63,8 +66,19 @@ defmodule JidoCodeWeb.Router do
   scope "/", JidoCodeWeb do
     pipe_through :browser
 
+    ash_authentication_live_session :setup_routes,
+      on_mount: [
+        {JidoCodeWeb.LiveUserAuth, :live_user_optional},
+        {JidoCodeWeb.LiveUserAuth, :setup_only_until_complete}
+      ] do
+      live "/setup", SetupLive, :index
+    end
+
     ash_authentication_live_session :public_routes,
-      on_mount: [{JidoCodeWeb.LiveUserAuth, :live_user_optional}] do
+      on_mount: [
+        {JidoCodeWeb.LiveUserAuth, :live_user_optional},
+        {JidoCodeWeb.LiveUserAuth, :ensure_onboarding_complete}
+      ] do
       live "/", HomeLive, :index
     end
 

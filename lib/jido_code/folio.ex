@@ -1,4 +1,5 @@
 defmodule JidoCode.Folio do
+  @moduledoc false
   use Ash.Domain
 
   resources do

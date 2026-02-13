@@ -1,4 +1,7 @@
 defmodule JidoCodeWeb.Components.MishkaComponents do
+  @moduledoc false
+  # credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
+
   defmacro __using__(_) do
     quote do
       import JidoCodeWeb.Components.Accordion, only: [accordion: 1]

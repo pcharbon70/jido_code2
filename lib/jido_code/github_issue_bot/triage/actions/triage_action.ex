@@ -55,22 +55,41 @@ defmodule JidoCode.GithubIssueBot.Triage.Actions.TriageAction do
 
   defp classify(title, _body, labels) do
     cond do
-      "bug" in labels or String.contains?(title, "bug") or String.contains?(title, "error") ->
+      bug_issue?(title, labels) ->
         :bug
 
-      "feature" in labels or "enhancement" in labels or
-        String.contains?(title, "feature") or String.contains?(title, "add") ->
+      feature_issue?(title, labels) ->
         :feature
 
-      "question" in labels or String.contains?(title, "?") ->
+      question_issue?(title, labels) ->
         :question
 
-      "documentation" in labels or String.contains?(title, "docs") ->
+      documentation_issue?(title, labels) ->
         :documentation
 
       true ->
         :unknown
     end
+  end
+
+  defp bug_issue?(title, labels) do
+    "bug" in labels or contains_any?(title, ["bug", "error"])
+  end
+
+  defp feature_issue?(title, labels) do
+    "feature" in labels or "enhancement" in labels or contains_any?(title, ["feature", "add"])
+  end
+
+  defp question_issue?(title, labels) do
+    "question" in labels or String.contains?(title, "?")
+  end
+
+  defp documentation_issue?(title, labels) do
+    "documentation" in labels or String.contains?(title, "docs")
+  end
+
+  defp contains_any?(text, terms) do
+    Enum.any?(terms, &String.contains?(text, &1))
   end
 
   defp needs_more_info?(body) do

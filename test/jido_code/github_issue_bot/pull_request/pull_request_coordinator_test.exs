@@ -212,7 +212,7 @@ defmodule JidoCode.GithubIssueBotTest.PullRequest.PullRequestCoordinatorTest do
       assert pr.pr_url != nil
 
       # Should have attempt history
-      assert length(pr.attempt_history) >= 1
+      assert pr.attempt_history != []
     end
   end
 
@@ -256,6 +256,7 @@ defmodule JidoCode.GithubIssueBotTest.PullRequest.PullRequestCoordinatorTest do
 
       # Should have 3 failed attempts in history
       assert length(pr.attempt_history) == 3
+
       Enum.each(pr.attempt_history, fn entry ->
         assert entry.outcome == :failed
       end)
