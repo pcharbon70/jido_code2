@@ -43,7 +43,8 @@ JidoCode is **product-first**: practical day-to-day coding automation is the pri
 | 60 | [Security & Auth](60_security_and_auth.md) | Draft | AshAuth single-user security model |
 | 61 | [Configuration & Deployment](61_configuration_and_deployment.md) | Draft | Cloud VM-first ops model |
 | 62 | [Security Playbook](62_security_playbook.md) | Draft | Operational security runbooks |
-| UX | [UX Spec Pack](ux/README.md) | Draft | Personas, journeys, routes, and user stories |
+| UX | [UX Spec Pack](ux/README.md) | Draft | Personas, journeys, routes, and summary stories |
+| ST | [Story Backlog](stories/README.md) | Draft | Atomic MVP stories, acceptance tests, and traceability matrix |
 | — | [Forge Overview](FORGE_OVERVIEW.md) | Reference | Implementation-level Forge details |
 
 ## Canonical Invariants

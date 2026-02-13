@@ -5,7 +5,9 @@ This subfolder defines user-centered planning artifacts for JidoCode:
 1. target user personas
 2. end-to-end user journeys
 3. route-level experience flows
-4. story inventory with acceptance criteria
+4. high-level story inventory
+
+Detailed implementation-grade stories live in `../stories/`.
 
 These UX docs are aligned with:
 
@@ -16,6 +18,7 @@ These UX docs are aligned with:
 - `../31_builtin_workflows.md`
 - `../50_github_integration.md`
 - `../60_security_and_auth.md`
+- `../stories/README.md`
 
 ## Documents
 
@@ -23,6 +26,7 @@ These UX docs are aligned with:
 - `02_user_journey.md`
 - `03_routes_and_experience_flows.md`
 - `04_user_stories.md`
+- `../stories/README.md`
 
 ## Scope Notes
 
