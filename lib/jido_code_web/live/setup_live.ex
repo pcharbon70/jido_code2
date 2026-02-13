@@ -3,6 +3,7 @@ defmodule JidoCodeWeb.SetupLive do
 
   alias AshAuthentication.{Info, Strategy}
   alias JidoCode.Accounts.User
+  alias JidoCode.Setup.GitHubCredentialChecks
   alias JidoCode.Setup.OwnerBootstrap
   alias JidoCode.Setup.ProviderCredentialChecks
   alias JidoCode.Setup.PrerequisiteChecks
@@ -42,6 +43,9 @@ defmodule JidoCodeWeb.SetupLive do
     provider_credential_report =
       resolve_provider_credential_report(onboarding_step, onboarding_state)
 
+    github_credential_report =
+      resolve_github_credential_report(onboarding_step, onboarding_state)
+
     owner_bootstrap = resolve_owner_bootstrap(onboarding_step)
 
     {:ok,
@@ -50,6 +54,7 @@ defmodule JidoCodeWeb.SetupLive do
      |> assign(:onboarding_state, onboarding_state)
      |> assign(:prerequisite_report, prerequisite_report)
      |> assign(:provider_credential_report, provider_credential_report)
+     |> assign(:github_credential_report, github_credential_report)
      |> assign(:owner_bootstrap, owner_bootstrap)
      |> assign(:save_error, owner_bootstrap_error(owner_bootstrap))
      |> assign(:redirect_reason, params["reason"] || "onboarding_incomplete")
@@ -171,6 +176,78 @@ defmodule JidoCodeWeb.SetupLive do
                 class="text-sm text-warning"
               >
                 {credential.remediation}
+              </p>
+            </li>
+          </ul>
+        </section>
+
+        <section :if={@github_credential_report} id="setup-github-integration" class="space-y-3">
+          <h2 class="text-lg font-semibold">GitHub integration credential validation</h2>
+          <p id="setup-github-checked-at" class="text-sm text-base-content/70">
+            Last validated: {format_checked_at(@github_credential_report.checked_at)}
+          </p>
+          <p
+            :if={@github_credential_report.owner_context}
+            id="setup-github-owner-context"
+            class="font-mono text-sm text-base-content/80"
+          >
+            Owner context: {@github_credential_report.owner_context}
+          </p>
+
+          <ul class="space-y-2">
+            <li
+              :for={path <- @github_credential_report.paths}
+              id={"setup-github-#{github_path_dom_id(path.path)}"}
+              class="rounded-lg border border-base-300 bg-base-100 p-3"
+            >
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <p class="font-medium">{path.name}</p>
+                <span
+                  id={"setup-github-#{github_path_dom_id(path.path)}-status"}
+                  class={["badge", github_status_class(path.status)]}
+                >
+                  {github_status_label(path.status)}
+                </span>
+              </div>
+              <p
+                id={"setup-github-transition-#{github_path_dom_id(path.path)}"}
+                class="text-sm text-base-content/80"
+              >
+                Status transition: {path.transition}
+              </p>
+              <p
+                id={"setup-github-repository-access-#{github_path_dom_id(path.path)}"}
+                class="text-sm text-base-content/80"
+              >
+                Repository access: {github_repository_access_label(path.repository_access)}
+              </p>
+              <p
+                id={"setup-github-repositories-#{github_path_dom_id(path.path)}"}
+                class="text-sm text-base-content/80"
+              >
+                Accessible repositories: {github_repositories_text(path.repositories)}
+              </p>
+              <p class="text-sm text-base-content/80">{path.detail}</p>
+              <p
+                :if={path.validated_at}
+                id={"setup-github-validated-at-#{github_path_dom_id(path.path)}"}
+                class="text-xs text-base-content/70"
+              >
+                Validated at: {format_checked_at(path.validated_at)}
+              </p>
+              <p
+                :if={path.error_type}
+                id={"setup-github-error-type-#{github_path_dom_id(path.path)}"}
+                class="text-sm text-error"
+              >
+                Typed integration error: {path.error_type}
+              </p>
+              <p
+                :if={path.status != :ready}
+                id={"setup-github-remediation-#{github_path_dom_id(path.path)}"}
+                class="text-sm text-warning"
+              >
+                {path.remediation}
               </p>
             </li>
           </ul>
@@ -419,6 +496,37 @@ defmodule JidoCodeWeb.SetupLive do
     end
   end
 
+  defp resolve_github_credential_report(onboarding_step, onboarding_state) do
+    if onboarding_step == 4 do
+      owner_context = resolve_owner_context(onboarding_state)
+
+      onboarding_state
+      |> fetch_step_state(4)
+      |> Map.get("github_credentials")
+      |> GitHubCredentialChecks.run(owner_context)
+    else
+      nil
+    end
+  end
+
+  defp resolve_owner_context(onboarding_state) do
+    onboarding_state
+    |> fetch_step_state(2)
+    |> Map.get("owner_email")
+    |> normalize_owner_context()
+  end
+
+  defp normalize_owner_context(owner_context) when is_binary(owner_context) do
+    owner_context
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized_owner_context -> normalized_owner_context
+    end
+  end
+
+  defp normalize_owner_context(_owner_context), do: nil
+
   defp save_step_progress(socket, validated_note) do
     case socket.assigns.onboarding_step do
       1 ->
@@ -450,6 +558,24 @@ defmodule JidoCodeWeb.SetupLive do
           persist_step_progress(socket, %{
             "validated_note" => validated_note,
             "provider_credentials" => ProviderCredentialChecks.serialize_for_state(provider_credential_report)
+          })
+        end
+
+      4 ->
+        github_credential_report =
+          socket.assigns.onboarding_state
+          |> fetch_step_state(4)
+          |> Map.get("github_credentials")
+          |> GitHubCredentialChecks.run(resolve_owner_context(socket.assigns.onboarding_state))
+
+        socket = assign(socket, :github_credential_report, github_credential_report)
+
+        if GitHubCredentialChecks.blocked?(github_credential_report) do
+          {:noreply, assign(socket, :save_error, github_block_message(github_credential_report))}
+        else
+          persist_step_progress(socket, %{
+            "validated_note" => validated_note,
+            "github_credentials" => GitHubCredentialChecks.serialize_for_state(github_credential_report)
           })
         end
 
@@ -504,6 +630,21 @@ defmodule JidoCodeWeb.SetupLive do
     )
   end
 
+  defp github_block_message(report) do
+    remediation =
+      report
+      |> GitHubCredentialChecks.blocked_paths()
+      |> Enum.map(fn path ->
+        typed_error = path.error_type || "github_integration_unknown_error"
+        "#{path.name} [#{typed_error}]: #{path.remediation}"
+      end)
+      |> Enum.join(" ")
+
+    String.trim(
+      "GitHub integration validation failed for both GitHub App and PAT fallback. Step 4 remains blocked with typed integration errors. No setup progress was saved. #{remediation}"
+    )
+  end
+
   defp prerequisite_status_label(:pass), do: "Pass"
   defp prerequisite_status_label(:timeout), do: "Timeout"
   defp prerequisite_status_label(:fail), do: "Fail"
@@ -521,6 +662,26 @@ defmodule JidoCodeWeb.SetupLive do
   defp provider_status_class(:invalid), do: "badge-error"
   defp provider_status_class(:not_set), do: "badge-warning"
   defp provider_status_class(:rotating), do: "badge-info"
+
+  defp github_status_label(:ready), do: "Ready"
+  defp github_status_label(:invalid), do: "Invalid"
+  defp github_status_label(:not_configured), do: "Not configured"
+
+  defp github_status_class(:ready), do: "badge-success"
+  defp github_status_class(:invalid), do: "badge-error"
+  defp github_status_class(:not_configured), do: "badge-warning"
+
+  defp github_repository_access_label(:confirmed), do: "Confirmed"
+  defp github_repository_access_label(:unconfirmed), do: "Unconfirmed"
+
+  defp github_repositories_text(repositories) when is_list(repositories) do
+    case repositories do
+      [] -> "none reported"
+      _repositories -> Enum.join(repositories, ", ")
+    end
+  end
+
+  defp github_repositories_text(_repositories), do: "none reported"
 
   defp format_checked_at(%DateTime{} = checked_at), do: DateTime.to_iso8601(checked_at)
   defp format_checked_at(_), do: "unknown"
@@ -549,6 +710,10 @@ defmodule JidoCodeWeb.SetupLive do
     |> assign(
       :provider_credential_report,
       resolve_provider_credential_report(config.onboarding_step, config.onboarding_state)
+    )
+    |> assign(
+      :github_credential_report,
+      resolve_github_credential_report(config.onboarding_step, config.onboarding_state)
     )
     |> assign(:owner_bootstrap, owner_bootstrap)
     |> assign_owner_form(config.onboarding_step, config.onboarding_state, owner_bootstrap)
@@ -629,4 +794,8 @@ defmodule JidoCodeWeb.SetupLive do
   defp provider_dom_id(provider) when is_atom(provider), do: Atom.to_string(provider)
   defp provider_dom_id(provider) when is_binary(provider), do: provider
   defp provider_dom_id(_provider), do: "unknown"
+
+  defp github_path_dom_id(path) when is_atom(path), do: Atom.to_string(path)
+  defp github_path_dom_id(path) when is_binary(path), do: path
+  defp github_path_dom_id(_path), do: "unknown"
 end

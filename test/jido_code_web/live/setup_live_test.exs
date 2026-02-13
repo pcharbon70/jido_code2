@@ -19,6 +19,9 @@ defmodule JidoCodeWeb.SetupLiveTest do
     original_provider_checker =
       Application.get_env(:jido_code, :setup_provider_credential_checker, :__missing__)
 
+    original_github_checker =
+      Application.get_env(:jido_code, :setup_github_credential_checker, :__missing__)
+
     original_runtime_mode = Application.get_env(:jido_code, :runtime_mode, :__missing__)
 
     original_timeout =
@@ -30,6 +33,7 @@ defmodule JidoCodeWeb.SetupLiveTest do
       restore_env(:system_config, original_config)
       restore_env(:setup_prerequisite_checker, original_checker)
       restore_env(:setup_provider_credential_checker, original_provider_checker)
+      restore_env(:setup_github_credential_checker, original_github_checker)
       restore_env(:setup_prerequisite_timeout_ms, original_timeout)
       restore_env(:runtime_mode, original_runtime_mode)
     end)
@@ -38,6 +42,7 @@ defmodule JidoCodeWeb.SetupLiveTest do
     Application.delete_env(:jido_code, :system_config_saver)
     Application.delete_env(:jido_code, :setup_prerequisite_timeout_ms)
     Application.delete_env(:jido_code, :setup_provider_credential_checker)
+    Application.delete_env(:jido_code, :setup_github_credential_checker)
     Application.put_env(:jido_code, :runtime_mode, :test)
 
     Application.put_env(:jido_code, :system_config, %{
@@ -52,6 +57,10 @@ defmodule JidoCodeWeb.SetupLiveTest do
 
     Application.put_env(:jido_code, :setup_provider_credential_checker, fn _context ->
       passing_provider_credential_report()
+    end)
+
+    Application.put_env(:jido_code, :setup_github_credential_checker, fn _context ->
+      passing_github_credential_report()
     end)
 
     reset_owner_state!()
@@ -479,6 +488,117 @@ defmodule JidoCodeWeb.SetupLiveTest do
     refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "3")
   end
 
+  test "step 4 validates GitHub App or PAT fallback and persists owner-context repository access",
+       %{conn: conn} do
+    Application.put_env(:jido_code, :setup_github_credential_checker, fn _context ->
+      mixed_github_credential_report()
+    end)
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 4,
+      onboarding_state: %{
+        "1" => %{"validated_note" => "Prerequisite checks passed"},
+        "2" => %{
+          "validated_note" => "Owner account confirmed",
+          "owner_email" => "owner@example.com"
+        },
+        "3" => %{"validated_note" => "Provider setup confirmed"}
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-github-checked-at", "2026-02-13T12:34:56Z")
+    assert has_element?(view, "#setup-github-owner-context", "owner@example.com")
+    assert has_element?(view, "#setup-github-github_app-status", "Invalid")
+    assert has_element?(view, "#setup-github-error-type-github_app", "github_app_repository_access_unverified")
+    assert has_element?(view, "#setup-github-pat-status", "Ready")
+    assert has_element?(view, "#setup-github-repository-access-pat", "Confirmed")
+    assert has_element?(view, "#setup-github-repositories-pat", "owner/repo-one")
+
+    view
+    |> form("#onboarding-step-form", %{
+      "step" => %{"validated_note" => "GitHub credentials validated"}
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 5")
+
+    persisted_config = Application.get_env(:jido_code, :system_config)
+    assert Map.fetch!(persisted_config, :onboarding_step) == 5
+
+    github_state =
+      persisted_config
+      |> Map.fetch!(:onboarding_state)
+      |> Map.fetch!("4")
+      |> Map.fetch!("github_credentials")
+
+    assert github_state["status"] == "ready"
+    assert github_state["owner_context"] == "owner@example.com"
+
+    paths_by_type =
+      github_state["paths"]
+      |> Enum.map(fn path_result -> {path_result["path"], path_result} end)
+      |> Map.new()
+
+    assert paths_by_type["pat"]["status"] == "ready"
+    assert paths_by_type["pat"]["repository_access"] == "confirmed"
+    assert is_binary(paths_by_type["pat"]["validated_at"])
+    assert paths_by_type["github_app"]["status"] == "invalid"
+    assert paths_by_type["github_app"]["error_type"] == "github_app_repository_access_unverified"
+  end
+
+  test "step 4 blocks progression with typed integration errors when GitHub App and PAT fail",
+       %{conn: conn} do
+    test_pid = self()
+
+    Application.put_env(:jido_code, :setup_github_credential_checker, fn _context ->
+      failing_github_credential_report()
+    end)
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 4,
+      onboarding_state: %{
+        "1" => %{"validated_note" => "Prerequisite checks passed"},
+        "2" => %{
+          "validated_note" => "Owner account confirmed",
+          "owner_email" => "owner@example.com"
+        },
+        "3" => %{"validated_note" => "Provider setup confirmed"}
+      }
+    })
+
+    Application.put_env(:jido_code, :system_config_saver, fn _config ->
+      send(test_pid, :unexpected_save)
+      {:ok, %{onboarding_completed: false, onboarding_step: 5, onboarding_state: %{}}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-github-github_app-status", "Invalid")
+    assert has_element?(view, "#setup-github-pat-status", "Invalid")
+    assert has_element?(view, "#setup-github-error-type-github_app", "github_app_credentials_invalid")
+    assert has_element?(view, "#setup-github-error-type-pat", "github_pat_credentials_invalid")
+
+    view
+    |> form("#onboarding-step-form", %{
+      "step" => %{"validated_note" => "Attempting GitHub setup bypass"}
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 4")
+    assert has_element?(view, "#setup-save-error", "typed integration errors")
+    assert has_element?(view, "#setup-save-error", "github_app_credentials_invalid")
+    assert has_element?(view, "#setup-save-error", "github_pat_credentials_invalid")
+    refute_received :unexpected_save
+
+    persisted_config = Application.get_env(:jido_code, :system_config)
+    assert Map.fetch!(persisted_config, :onboarding_step) == 4
+    refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "4")
+  end
+
   test "save failure keeps the same step and shows a retry-safe error", %{conn: conn} do
     Application.put_env(:jido_code, :system_config, %{
       onboarding_completed: false,
@@ -699,6 +819,120 @@ defmodule JidoCodeWeb.SetupLiveTest do
           status: :invalid,
           detail: "Configured OPENAI_API_KEY failed verification checks.",
           remediation: "Set a valid `OPENAI_API_KEY` (typically prefixed with `sk-`) and retry verification.",
+          checked_at: @checked_at
+        }
+      ]
+    }
+  end
+
+  defp passing_github_credential_report do
+    %{
+      checked_at: @checked_at,
+      status: :ready,
+      owner_context: "owner@example.com",
+      paths: [
+        %{
+          path: :github_app,
+          name: "GitHub App",
+          status: :ready,
+          previous_status: :not_configured,
+          transition: "Not configured -> Ready",
+          owner_context: "owner@example.com",
+          repository_access: :confirmed,
+          repositories: ["owner/repo-one"],
+          detail: "GitHub App credentials are valid and repository access is confirmed.",
+          remediation: "Credential path is ready.",
+          validated_at: @checked_at,
+          checked_at: @checked_at
+        },
+        %{
+          path: :pat,
+          name: "Personal Access Token (PAT)",
+          status: :not_configured,
+          previous_status: :not_configured,
+          transition: "Not configured -> Not configured",
+          owner_context: "owner@example.com",
+          repository_access: :unconfirmed,
+          repositories: [],
+          detail: "No GitHub personal access token fallback is configured (`GITHUB_PAT`).",
+          remediation: "Set `GITHUB_PAT` and retry validation.",
+          error_type: "github_pat_not_configured",
+          checked_at: @checked_at
+        }
+      ]
+    }
+  end
+
+  defp mixed_github_credential_report do
+    %{
+      checked_at: @checked_at,
+      status: :ready,
+      owner_context: "owner@example.com",
+      paths: [
+        %{
+          path: :github_app,
+          name: "GitHub App",
+          status: :invalid,
+          previous_status: :not_configured,
+          transition: "Not configured -> Invalid",
+          owner_context: "owner@example.com",
+          repository_access: :unconfirmed,
+          repositories: [],
+          detail: "GitHub App credentials are configured but repository access could not be confirmed.",
+          remediation: "Grant repository access for this owner context and retry validation.",
+          error_type: "github_app_repository_access_unverified",
+          checked_at: @checked_at
+        },
+        %{
+          path: :pat,
+          name: "Personal Access Token (PAT)",
+          status: :ready,
+          previous_status: :not_configured,
+          transition: "Not configured -> Ready",
+          owner_context: "owner@example.com",
+          repository_access: :confirmed,
+          repositories: ["owner/repo-one", "owner/repo-two"],
+          detail: "GitHub PAT fallback is valid and confirms repository access.",
+          remediation: "Credential path is ready.",
+          validated_at: @checked_at,
+          checked_at: @checked_at
+        }
+      ]
+    }
+  end
+
+  defp failing_github_credential_report do
+    %{
+      checked_at: @checked_at,
+      status: :blocked,
+      owner_context: "owner@example.com",
+      paths: [
+        %{
+          path: :github_app,
+          name: "GitHub App",
+          status: :invalid,
+          previous_status: :not_configured,
+          transition: "Not configured -> Invalid",
+          owner_context: "owner@example.com",
+          repository_access: :unconfirmed,
+          repositories: [],
+          detail: "Configured GitHub App credentials failed validation.",
+          remediation: "Set valid GitHub App credentials and retry validation.",
+          error_type: "github_app_credentials_invalid",
+          checked_at: @checked_at
+        },
+        %{
+          path: :pat,
+          name: "Personal Access Token (PAT)",
+          status: :invalid,
+          previous_status: :not_configured,
+          transition: "Not configured -> Invalid",
+          owner_context: "owner@example.com",
+          repository_access: :unconfirmed,
+          repositories: [],
+          detail: "Configured GitHub PAT failed validation.",
+          remediation: "Set a valid `GITHUB_PAT` and retry validation.",
+          error_type: "github_pat_credentials_invalid",
           checked_at: @checked_at
         }
       ]
