@@ -1,6 +1,7 @@
 defmodule JidoCodeWeb.SetupLive do
   use JidoCodeWeb, :live_view
 
+  alias JidoCode.Setup.PrerequisiteChecks
   alias JidoCode.Setup.SystemConfig
 
   @wizard_steps %{
@@ -30,10 +31,13 @@ defmodule JidoCodeWeb.SetupLive do
           {parsed_step, %{}, params["diagnostic"] || load_diagnostic}
       end
 
+    prerequisite_report = resolve_prerequisite_report(onboarding_step, onboarding_state)
+
     {:ok,
      socket
      |> assign(:onboarding_step, onboarding_step)
      |> assign(:onboarding_state, onboarding_state)
+     |> assign(:prerequisite_report, prerequisite_report)
      |> assign(:save_error, nil)
      |> assign(:redirect_reason, params["reason"] || "onboarding_incomplete")
      |> assign(:diagnostic, diagnostic)
@@ -75,6 +79,39 @@ defmodule JidoCodeWeb.SetupLive do
           <span>{@save_error}</span>
         </div>
 
+        <section :if={@prerequisite_report} id="setup-prerequisite-status" class="space-y-3">
+          <h2 class="text-lg font-semibold">System prerequisite checks</h2>
+          <p id="setup-prerequisite-checked-at" class="text-sm text-base-content/70">
+            Last checked: {format_checked_at(@prerequisite_report.checked_at)}
+          </p>
+
+          <ul class="space-y-2">
+            <li
+              :for={check <- @prerequisite_report.checks}
+              id={"setup-prerequisite-#{check.id}"}
+              class="rounded-lg border border-base-300 bg-base-100 p-3"
+            >
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <p class="font-medium">{check.name}</p>
+                <span
+                  id={"setup-prerequisite-#{check.id}-status"}
+                  class={["badge", prerequisite_status_class(check.status)]}
+                >
+                  {prerequisite_status_label(check.status)}
+                </span>
+              </div>
+              <p class="text-sm text-base-content/80">{check.detail}</p>
+              <p
+                :if={check.status != :pass}
+                id={"setup-prerequisite-remediation-#{check.id}"}
+                class="text-sm text-warning"
+              >
+                {check.remediation}
+              </p>
+            </li>
+          </ul>
+        </section>
+
         <.form for={@step_form} id="onboarding-step-form" phx-submit="save_step" class="space-y-4">
           <.input
             field={@step_form[:validated_note]}
@@ -113,18 +150,7 @@ defmodule JidoCodeWeb.SetupLive do
   def handle_event("save_step", %{"step" => %{"validated_note" => validated_note}}, socket) do
     case normalize_validated_note(validated_note) do
       {:ok, normalized_note} ->
-        case SystemConfig.save_step_progress(%{"validated_note" => normalized_note}) do
-          {:ok, %SystemConfig{} = config} ->
-            {:noreply,
-             socket
-             |> assign(:onboarding_step, config.onboarding_step)
-             |> assign(:onboarding_state, config.onboarding_state)
-             |> assign(:save_error, nil)
-             |> assign_step_form(config.onboarding_step, config.onboarding_state)}
-
-          {:error, %{diagnostic: diagnostic}} ->
-            {:noreply, assign(socket, :save_error, diagnostic)}
-        end
+        save_step_progress(socket, normalized_note)
 
       {:error, diagnostic} ->
         {:noreply, assign(socket, :save_error, diagnostic)}
@@ -149,7 +175,7 @@ defmodule JidoCodeWeb.SetupLive do
   defp assign_step_form(socket, onboarding_step, onboarding_state) do
     persisted_note =
       onboarding_state
-      |> Map.get(Integer.to_string(onboarding_step), %{})
+      |> fetch_step_state(onboarding_step)
       |> Map.get("validated_note", "")
 
     assign(socket, :step_form, to_form(%{"validated_note" => persisted_note}, as: :step))
@@ -172,6 +198,90 @@ defmodule JidoCodeWeb.SetupLive do
     |> Enum.filter(fn {_step_key, step_state} -> is_map(step_state) end)
     |> Enum.sort_by(fn {step_key, _step_state} -> step_number(step_key) end)
   end
+
+  defp resolve_prerequisite_report(onboarding_step, onboarding_state) do
+    if onboarding_step == 1 do
+      PrerequisiteChecks.run()
+    else
+      onboarding_state
+      |> fetch_step_state(1)
+      |> Map.get("prerequisite_checks")
+      |> PrerequisiteChecks.from_state()
+    end
+  end
+
+  defp save_step_progress(socket, validated_note) do
+    if socket.assigns.onboarding_step == 1 do
+      prerequisite_report = PrerequisiteChecks.run()
+
+      socket = assign(socket, :prerequisite_report, prerequisite_report)
+
+      if PrerequisiteChecks.blocked?(prerequisite_report) do
+        {:noreply, assign(socket, :save_error, prerequisite_block_message(prerequisite_report))}
+      else
+        persist_step_progress(socket, %{
+          "validated_note" => validated_note,
+          "prerequisite_checks" => PrerequisiteChecks.serialize_for_state(prerequisite_report)
+        })
+      end
+    else
+      persist_step_progress(socket, %{"validated_note" => validated_note})
+    end
+  end
+
+  defp persist_step_progress(socket, step_state) do
+    case SystemConfig.save_step_progress(step_state) do
+      {:ok, %SystemConfig{} = config} ->
+        {:noreply,
+         socket
+         |> assign(:onboarding_step, config.onboarding_step)
+         |> assign(:onboarding_state, config.onboarding_state)
+         |> assign(:prerequisite_report, resolve_prerequisite_report(config.onboarding_step, config.onboarding_state))
+         |> assign(:save_error, nil)
+         |> assign_step_form(config.onboarding_step, config.onboarding_state)}
+
+      {:error, %{diagnostic: diagnostic}} ->
+        {:noreply, assign(socket, :save_error, diagnostic)}
+    end
+  end
+
+  defp prerequisite_block_message(report) do
+    blocked_checks = PrerequisiteChecks.blocked_checks(report)
+
+    remediation =
+      blocked_checks
+      |> Enum.map(fn check -> "#{check.name}: #{check.remediation}" end)
+      |> Enum.join(" ")
+
+    timeout_blocked? = Enum.any?(blocked_checks, fn check -> check.status == :timeout end)
+
+    prefix =
+      if timeout_blocked? do
+        "One or more prerequisite checks timed out. Onboarding remains blocked and no setup progress was saved."
+      else
+        "System prerequisite checks failed. Resolve the reported prerequisites before continuing."
+      end
+
+    String.trim("#{prefix} #{remediation}")
+  end
+
+  defp prerequisite_status_label(:pass), do: "Pass"
+  defp prerequisite_status_label(:timeout), do: "Timeout"
+  defp prerequisite_status_label(:fail), do: "Fail"
+
+  defp prerequisite_status_class(:pass), do: "badge-success"
+  defp prerequisite_status_class(:timeout), do: "badge-warning"
+  defp prerequisite_status_class(:fail), do: "badge-error"
+
+  defp format_checked_at(%DateTime{} = checked_at), do: DateTime.to_iso8601(checked_at)
+  defp format_checked_at(_), do: "unknown"
+
+  defp fetch_step_state(onboarding_state, onboarding_step) when is_map(onboarding_state) do
+    step_key = Integer.to_string(onboarding_step)
+    Map.get(onboarding_state, step_key) || Map.get(onboarding_state, onboarding_step) || %{}
+  end
+
+  defp fetch_step_state(_onboarding_state, _onboarding_step), do: %{}
 
   defp step_title(step) do
     Map.get(@wizard_steps, step, "Onboarding step #{step}")
