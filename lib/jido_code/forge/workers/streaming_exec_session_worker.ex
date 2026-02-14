@@ -10,8 +10,9 @@ defmodule JidoCode.Forge.Workers.StreamingExecSessionWorker do
 
   require Logger
 
+  alias JidoCode.Forge.EventLogger
   alias JidoCode.Forge.PubSub, as: ForgePubSub
-  alias JidoCode.Forge.Resources.{ExecSession, Event}
+  alias JidoCode.Forge.Resources.ExecSession
 
   @chunk_coalesce_ms 50
   @max_buffer_size 64 * 1024
@@ -192,14 +193,12 @@ defmodule JidoCode.Forge.Workers.StreamingExecSessionWorker do
   end
 
   defp log_output_event(session_id, sequence, chunk) do
-    Event
-    |> Ash.Changeset.for_create(:log, %{
-      session_id: session_id,
-      event_type: "exec_session.output",
-      exec_session_sequence: sequence,
-      data: %{chunk: chunk, size: byte_size(chunk)}
-    })
-    |> Ash.create()
+    EventLogger.log_event(
+      session_id,
+      "exec_session.output",
+      %{chunk: chunk, size: byte_size(chunk)},
+      exec_session_sequence: sequence
+    )
   end
 
   defp emit_signal(session_id, type, data) do

@@ -7,10 +7,8 @@ defmodule JidoCode.Forge.Operations do
   side effects that should not be embedded in Ash actions.
   """
 
-  require Logger
-
-  alias JidoCode.Forge.{Manager, PubSub}
-  alias JidoCode.Forge.Resources.{Session, Event, Checkpoint}
+  alias JidoCode.Forge.{EventLogger, Manager, PubSub}
+  alias JidoCode.Forge.Resources.{Session, Checkpoint}
 
   @doc """
   Resume a session from its last checkpoint.
@@ -207,21 +205,7 @@ defmodule JidoCode.Forge.Operations do
   end
 
   defp log_event(session_id, event_type, data) do
-    Event
-    |> Ash.Changeset.for_create(:log, %{
-      session_id: session_id,
-      event_type: event_type,
-      data: data
-    })
-    |> Ash.create()
-    |> case do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Failed to log event #{event_type}: #{inspect(reason)}")
-        :ok
-    end
+    EventLogger.log_event(session_id, event_type, data)
   end
 
   defp start_resumed_session(session, checkpoint) do

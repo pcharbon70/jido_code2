@@ -21,7 +21,8 @@ defmodule JidoCode.Forge.Persistence do
 
   require Logger
 
-  alias JidoCode.Forge.Resources.{Session, Event, ExecSession}
+  alias JidoCode.Forge.EventLogger
+  alias JidoCode.Forge.Resources.{Session, ExecSession}
 
   @doc """
   Check if persistence is enabled.
@@ -189,13 +190,7 @@ defmodule JidoCode.Forge.Persistence do
     if enabled?() do
       Task.start(fn ->
         with {:ok, session} <- find_session(session_id) do
-          Event
-          |> Ash.Changeset.for_create(:log, %{
-            session_id: session.id,
-            event_type: event_type,
-            data: data
-          })
-          |> Ash.create()
+          EventLogger.log_event(session.id, event_type, data)
         end
       end)
     end

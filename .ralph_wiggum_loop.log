@@ -7666,3 +7666,80 @@ Excluding tags: [:sprite_integration]
 .....
 Finished in 3.3 seconds (0.9s async, 2.3s sync)
 82 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `lib/jido_code/security/log_redactor.ex`
+- `lib/jido_code/forge/event_logger.ex`
+- `lib/jido_code/forge/operations.ex`
+- `lib/jido_code/forge/persistence.ex`
+- `lib/jido_code/forge/workers/streaming_exec_session_worker.ex`
+- `test/jido_code/security/log_redactor_test.exs`
+- `test/jido_code/forge/event_logger_test.exs`
+
+2) tests/commands executed
+- `elixir -e 'Code.prepend_path(~c"/tmp/mix_override"); Mix.CLI.main(["format", ...])'`
+- `MIX_ENV=test MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.prepend_path(~c"/tmp/mix_override"); Mix.CLI.main(["compile", "--warnings-as-errors"])'`
+- `MIX_ENV=test MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.prepend_path(~c"/tmp/mix_override"); Mix.CLI.main(["deps.unlock", "--unused"])'`
+- `MIX_ENV=test MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.prepend_path(~c"/tmp/mix_override"); Mix.CLI.main(["format", "--check-formatted"])'`
+- `MIX_ENV=test elixir $(find _build/test/lib -maxdepth 2 -type d -name ebin | sed 's#^#-pa #') -e 'ExUnit.start(); Code.require_file("test/jido_code/security/log_redactor_test.exs"); Code.require_file("test/jido_code/forge/event_logger_test.exs"); result = ExUnit.run(); if result.failures > 0, do: System.halt(1)'`  
+  Result: `4 tests, 0 failures`
+- `MIX_ENV=test MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.prepend_path(~c"/tmp/mix_override"); Mix.CLI.main(["precommit"])'`  
+  Result: failed before completion due DB connect restriction (`tcp connect (localhost:5432): :eperm`)
+
+3) acceptance criteria coverage
+- AC1: Log event writes now go through a centralized redaction gate before persistence via `EventLogger.log_event/4`, and all three Forge event paths were wired to it:
+  - `lib/jido_code/forge/operations.ex:207`
+  - `lib/jido_code/forge/persistence.ex:189`
+  - `lib/jido_code/forge/workers/streaming_exec_session_worker.ex:195`
+- AC2: Masking preserves debugging context (prefix/suffix + length) while removing raw secrets in `lib/jido_code/security/log_redactor.ex:162`; verified by:
+  - `test/jido_code/security/log_redactor_test.exs:6`
+  - `test/jido_code/forge/event_logger_test.exs:46`
+- AC3: Redaction failure is fail-closed: event write is blocked and a high-priority security log is emitted (`security_audit=forge_event_redaction_failed`) in `lib/jido_code/forge/event_logger.ex:99`; verified by `test/jido_code/forge/event_logger_test.exs:74`.
+
+4) blockers/assumptions
+- Blocker: Full `mix precommit` cannot complete in this sandbox because `ash.setup`/test DB access requires TCP to `localhost:5432`, which is blocked (`:eperm`).
+- Assumption: For `ST-SEC-004`, the relevant `/projects/:id/runs/:run_id` runtime logging surface is the Forge event logging/persistence path, so redaction was applied there only (not PubSub/artifact channels from `ST-SEC-005`).
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 28216, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+........................21:49:38.172 request_id=GJQAYuHzpbnszIQAAAph [warning] auth_sign_out_failed reason=:forced_invalidation_failure
+21:49:38.220 request_id=GJQAYuKnuszszIQAAAqB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:38.401 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:49:38.429 request_id=GJQAYvHwnqvYAUEAAArh [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.SettingsLive reason=missing_or_expired_session
+......21:49:38.679 [warning] security_audit=blocked_plaintext_secret_persistence resource=github_repo field=webhook_secret action=update actor_id=unknown actor_email=unknown
+..21:49:38.724 request_id=GJQAYwL0Tn7rW_cAACsC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:38.745 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:49:38.802 request_id=GJQAYwf1rjvmbxcAACzC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:38.814 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:49:38.877 request_id=GJQAYwx9mgMCVEoAAC2C [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:38.899 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:49:38.929 request_id=GJQAYw-Wb6uwauYAAAgD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:38.938 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.....21:49:39.008 request_id=GJQAYxRQBvFyoCMAAAZm [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:39.023 request_id=GJQAYxUsH9VyoCMAAAbG [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:39.033 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+...**.21:49:39.166 request_id=GJQAYx3Twx6-KfIAADCC [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+..21:49:39.240 request_id=GJQAYyJEhOL2zmcAAAjj [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+.21:49:39.262 request_id=GJQAYyNtyxkkR_AAAAoD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:49:39.266 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:49:39.269 request_id=GJQAYyPnZH4kR_AAAApD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:49:39.279 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:49:39.283 request_id=GJQAYyTaAGdJJqEAAAqD [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+.........21:49:39.708 [warning] Quality checks failed for test-retry-4228 (attempt 1/3), retrying...
+21:49:39.713 [warning] Quality checks failed for test-retry-4228 (attempt 2/3), retrying...
+..21:49:39.809 [warning] Quality checks failed for test-fail-4452 (attempt 1/3), retrying...
+21:49:39.813 [warning] Quality checks failed for test-fail-4452 (attempt 2/3), retrying...
+21:49:39.818 [error] Quality checks failed for test-fail-4452 after 3 attempts, giving up
+21:49:39.821 [warning] Pull request failed for test-fail-4452 after 3 attempts
+.....21:49:40.036 request_id=GJQAY1Fvnk-XtIcAAAdE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:49:40.041 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.....21:49:40.152 request_id=GJQAY1hzBA29NxoAABDB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:49:40.157 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+......21:49:40.413 request_id=GJQAY2gHNhQOqWIAADfC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:49:40.418 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+..21:49:40.488 request_id=GJQAY2x9UFZrjJ0AABcj [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:49:40.497 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+......
+Finished in 3.4 seconds (1.0s async, 2.4s sync)
+86 tests, 0 failures, 2 skipped (4 excluded)
