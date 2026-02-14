@@ -226,6 +226,44 @@ defmodule JidoCodeWeb.SetupLive do
           >
             Owner context: {@github_credential_report.owner_context}
           </p>
+          <div id="setup-github-integration-health" class="flex flex-wrap items-center gap-3 text-sm">
+            <p id="setup-github-readiness-status" class="text-base-content/80">
+              Integration readiness:
+              <span class={[
+                "badge ml-1",
+                github_readiness_status_class(github_integration_health(@github_credential_report).readiness_status)
+              ]}>
+                {github_readiness_status_label(github_integration_health(@github_credential_report).readiness_status)}
+              </span>
+            </p>
+            <p id="setup-github-app-readiness-status" class="text-base-content/80">
+              GitHub App readiness:
+              <span class={[
+                "badge ml-1",
+                github_status_class(github_integration_health(@github_credential_report).github_app_status)
+              ]}>
+                {github_status_label(github_integration_health(@github_credential_report).github_app_status)}
+              </span>
+            </p>
+          </div>
+          <p
+            :if={github_integration_health(@github_credential_report).expected_repositories != []}
+            id="setup-github-expected-repositories"
+            class="text-sm text-base-content/80"
+          >
+            Expected repositories: {github_repositories_text(
+              github_integration_health(@github_credential_report).expected_repositories
+            )}
+          </p>
+          <p
+            :if={github_integration_health(@github_credential_report).missing_repositories != []}
+            id="setup-github-missing-repositories"
+            class="text-sm text-error"
+          >
+            Missing expected repositories: {github_repositories_text(
+              github_integration_health(@github_credential_report).missing_repositories
+            )}
+          </p>
 
           <ul class="space-y-2">
             <li
@@ -1574,9 +1612,15 @@ defmodule JidoCodeWeb.SetupLive do
   defp github_status_label(:invalid), do: "Invalid"
   defp github_status_label(:not_configured), do: "Not configured"
 
+  defp github_readiness_status_label(:ready), do: "Ready"
+  defp github_readiness_status_label(:blocked), do: "Blocked"
+
   defp github_status_class(:ready), do: "badge-success"
   defp github_status_class(:invalid), do: "badge-error"
   defp github_status_class(:not_configured), do: "badge-warning"
+
+  defp github_readiness_status_class(:ready), do: "badge-success"
+  defp github_readiness_status_class(:blocked), do: "badge-error"
 
   defp environment_check_status_label(:ready), do: "Ready"
   defp environment_check_status_label(:failed), do: "Failed"
@@ -1818,6 +1862,31 @@ defmodule JidoCodeWeb.SetupLive do
   end
 
   defp webhook_event_dom_id(_event), do: "unknown"
+
+  defp github_integration_health(%{integration_health: integration_health})
+       when is_map(integration_health),
+       do: integration_health
+
+  defp github_integration_health(%{status: status, paths: paths}) when is_list(paths) do
+    github_app_path =
+      Enum.find(paths, fn path_result -> path_result.path == :github_app end) || %{}
+
+    %{
+      readiness_status: status,
+      github_app_status: Map.get(github_app_path, :status, :not_configured),
+      expected_repositories: Map.get(github_app_path, :expected_repositories, []),
+      missing_repositories: Map.get(github_app_path, :missing_repositories, [])
+    }
+  end
+
+  defp github_integration_health(_report) do
+    %{
+      readiness_status: :blocked,
+      github_app_status: :not_configured,
+      expected_repositories: [],
+      missing_repositories: []
+    }
+  end
 
   defp github_path_dom_id(path) when is_atom(path), do: Atom.to_string(path)
   defp github_path_dom_id(path) when is_binary(path), do: path

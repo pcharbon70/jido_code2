@@ -626,7 +626,9 @@ defmodule JidoCodeWeb.SetupLiveTest do
     assert is_nil(credentials_by_provider["openai"]["verified_at"])
   end
 
-  test "step 3 exposes source resolution diagnostics without rendering secret material", %{conn: conn} do
+  test "step 3 exposes source resolution diagnostics without rendering secret material", %{
+    conn: conn
+  } do
     original_anthropic_env = fetch_system_env("ANTHROPIC_API_KEY")
     original_anthropic_app_env = Application.get_env(:jido_code, :anthropic_api_key, :__missing__)
 
@@ -792,6 +794,8 @@ defmodule JidoCodeWeb.SetupLiveTest do
 
     assert has_element?(view, "#setup-github-checked-at", "2026-02-13T12:34:56Z")
     assert has_element?(view, "#setup-github-owner-context", "owner@example.com")
+    assert has_element?(view, "#setup-github-readiness-status", "Ready")
+    assert has_element?(view, "#setup-github-app-readiness-status", "Invalid")
     assert has_element?(view, "#setup-github-github_app-status", "Invalid")
 
     assert has_element?(
@@ -823,6 +827,10 @@ defmodule JidoCodeWeb.SetupLiveTest do
 
     assert github_state["status"] == "ready"
     assert github_state["owner_context"] == "owner@example.com"
+    assert github_state["integration_health"]["readiness_status"] == "ready"
+    assert github_state["integration_health"]["github_app_status"] == "invalid"
+    assert github_state["integration_health"]["missing_repositories"] == []
+    assert github_state["integration_health"]["last_checked_at"] == "2026-02-13T12:34:56Z"
 
     paths_by_type =
       github_state["paths"]
@@ -864,6 +872,8 @@ defmodule JidoCodeWeb.SetupLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
 
+    assert has_element?(view, "#setup-github-readiness-status", "Blocked")
+    assert has_element?(view, "#setup-github-app-readiness-status", "Invalid")
     assert has_element?(view, "#setup-github-github_app-status", "Invalid")
     assert has_element?(view, "#setup-github-pat-status", "Invalid")
 
@@ -890,6 +900,69 @@ defmodule JidoCodeWeb.SetupLiveTest do
     persisted_config = Application.get_env(:jido_code, :system_config)
     assert Map.fetch!(persisted_config, :onboarding_step) == 4
     refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "4")
+  end
+
+  test "step 4 blocks progression when GitHub App installation access misses expected repositories",
+       %{conn: conn} do
+    test_pid = self()
+
+    Application.put_env(:jido_code, :setup_github_credential_checker, fn _context ->
+      github_app_installation_gap_report()
+    end)
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 4,
+      onboarding_state: %{
+        "1" => %{"validated_note" => "Prerequisite checks passed"},
+        "2" => %{
+          "validated_note" => "Owner account confirmed",
+          "owner_email" => "owner@example.com"
+        },
+        "3" => %{"validated_note" => "Provider setup confirmed"}
+      }
+    })
+
+    Application.put_env(:jido_code, :system_config_saver, fn _config ->
+      send(test_pid, :unexpected_save)
+      {:ok, %{onboarding_completed: false, onboarding_step: 5, onboarding_state: %{}}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-github-readiness-status", "Blocked")
+    assert has_element?(view, "#setup-github-app-readiness-status", "Invalid")
+
+    assert has_element?(
+             view,
+             "#setup-github-expected-repositories",
+             "owner/repo-one, owner/repo-two"
+           )
+
+    assert has_element?(view, "#setup-github-missing-repositories", "owner/repo-two")
+
+    assert has_element?(
+             view,
+             "#setup-github-error-type-github_app",
+             "github_app_installation_access_missing_repositories"
+           )
+
+    view
+    |> form("#onboarding-step-form", %{
+      "step" => %{"validated_note" => "Attempting GitHub setup with missing installation access"}
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 4")
+    assert has_element?(view, "#setup-save-error", "typed integration errors")
+
+    assert has_element?(
+             view,
+             "#setup-save-error",
+             "github_app_installation_access_missing_repositories"
+           )
+
+    refute_received :unexpected_save
   end
 
   test "step 5 persists local environment defaults with workspace validation results", %{
@@ -1788,6 +1861,47 @@ defmodule JidoCodeWeb.SetupLiveTest do
           detail: "Configured GitHub PAT failed validation.",
           remediation: "Set a valid `GITHUB_PAT` and retry validation.",
           error_type: "github_pat_credentials_invalid",
+          checked_at: @checked_at
+        }
+      ]
+    }
+  end
+
+  defp github_app_installation_gap_report do
+    %{
+      checked_at: @checked_at,
+      status: :blocked,
+      owner_context: "owner@example.com",
+      paths: [
+        %{
+          path: :github_app,
+          name: "GitHub App",
+          status: :invalid,
+          previous_status: :not_configured,
+          transition: "Not configured -> Invalid",
+          owner_context: "owner@example.com",
+          repository_access: :unconfirmed,
+          repositories: ["owner/repo-one"],
+          expected_repositories: ["owner/repo-one", "owner/repo-two"],
+          missing_repositories: ["owner/repo-two"],
+          detail:
+            "Credential path is configured but GitHub App installation access is missing expected repositories: owner/repo-two.",
+          remediation: "Grant GitHub App installation access to expected repositories and retry validation.",
+          error_type: "github_app_installation_access_missing_repositories",
+          checked_at: @checked_at
+        },
+        %{
+          path: :pat,
+          name: "Personal Access Token (PAT)",
+          status: :not_configured,
+          previous_status: :not_configured,
+          transition: "Not configured -> Not configured",
+          owner_context: "owner@example.com",
+          repository_access: :unconfirmed,
+          repositories: [],
+          detail: "No GitHub personal access token fallback is configured (`GITHUB_PAT`).",
+          remediation: "Set `GITHUB_PAT` and retry validation.",
+          error_type: "github_pat_not_configured",
           checked_at: @checked_at
         }
       ]

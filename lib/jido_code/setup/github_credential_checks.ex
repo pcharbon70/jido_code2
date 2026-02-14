@@ -5,10 +5,22 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
 
   @default_checker_remediation "Verify GitHub credential checker configuration and retry setup."
   @default_repo_access_remediation "Grant repository access for this owner context and retry validation."
+  @default_installation_access_remediation "Grant GitHub App installation access to expected repositories and retry validation."
 
   @type status :: :ready | :invalid | :not_configured
   @type path :: :github_app | :pat
   @type repository_access :: :confirmed | :unconfirmed
+  @type readiness_status :: :ready | :blocked
+
+  @type integration_health :: %{
+          readiness_status: readiness_status(),
+          github_app_status: status(),
+          github_app_ready: boolean(),
+          github_app_repository_access: repository_access(),
+          expected_repositories: [String.t()],
+          missing_repositories: [String.t()],
+          last_checked_at: DateTime.t()
+        }
 
   @type path_result :: %{
           path: path(),
@@ -19,6 +31,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
           owner_context: String.t() | nil,
           repository_access: repository_access(),
           repositories: [String.t()],
+          expected_repositories: [String.t()],
+          missing_repositories: [String.t()],
           detail: String.t(),
           remediation: String.t(),
           error_type: String.t() | nil,
@@ -28,9 +42,10 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
 
   @type report :: %{
           checked_at: DateTime.t(),
-          status: :ready | :blocked,
+          status: readiness_status(),
           owner_context: String.t() | nil,
-          paths: [path_result()]
+          paths: [path_result()],
+          integration_health: integration_health()
         }
 
   @spec run(map() | nil, String.t() | nil) :: report()
@@ -53,6 +68,7 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
       owner_context: owner_context
     })
     |> normalize_report(checked_at, previous_statuses, owner_context)
+    |> with_integration_health()
   end
 
   @spec blocked?(report()) :: boolean()
@@ -70,12 +86,21 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
   def blocked_paths(_), do: []
 
   @spec serialize_for_state(report()) :: map()
-  def serialize_for_state(%{checked_at: checked_at, status: status, owner_context: owner_context, paths: paths})
+  def serialize_for_state(
+        %{checked_at: checked_at, status: status, owner_context: owner_context, paths: paths} =
+          report
+      )
       when is_list(paths) do
+    integration_health =
+      report
+      |> with_integration_health()
+      |> Map.get(:integration_health)
+
     %{
       "checked_at" => DateTime.to_iso8601(checked_at),
       "status" => Atom.to_string(status),
       "owner_context" => owner_context,
+      "integration_health" => serialize_integration_health(integration_health),
       "paths" =>
         Enum.map(paths, fn path_result ->
           %{
@@ -87,6 +112,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
             "owner_context" => path_result.owner_context,
             "repository_access" => Atom.to_string(path_result.repository_access),
             "repositories" => path_result.repositories,
+            "expected_repositories" => path_result.expected_repositories,
+            "missing_repositories" => path_result.missing_repositories,
             "detail" => path_result.detail,
             "remediation" => path_result.remediation,
             "error_type" => path_result.error_type,
@@ -121,6 +148,11 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
     if paths == [] do
       nil
     else
+      integration_health =
+        state
+        |> map_get(:integration_health, "integration_health", nil)
+        |> integration_health_from_state(checked_at, paths)
+
       %{
         checked_at: checked_at,
         owner_context: owner_context,
@@ -128,7 +160,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
         status:
           state
           |> map_get(:status, "status", nil)
-          |> normalize_report_status(overall_status(paths))
+          |> normalize_report_status(overall_status(paths)),
+        integration_health: integration_health
       }
     end
   end
@@ -136,7 +169,11 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
   def from_state(_), do: nil
 
   @doc false
-  def default_checker(%{checked_at: checked_at, previous_statuses: previous_statuses, owner_context: owner_context})
+  def default_checker(%{
+        checked_at: checked_at,
+        previous_statuses: previous_statuses,
+        owner_context: owner_context
+      })
       when is_map(previous_statuses) do
     path_results =
       Enum.map(path_definitions(), fn definition ->
@@ -159,7 +196,16 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
     }
   end
 
-  defp build_default_path_result(definition, checked_at, owner_context, previous_status, repositories) do
+  defp build_default_path_result(
+         definition,
+         checked_at,
+         owner_context,
+         previous_status,
+         repositories
+       ) do
+    expected_repositories = fetch_expected_repositories(definition)
+    missing_repositories = missing_expected_repositories(expected_repositories, repositories)
+
     cond do
       credentials_present?(definition) and owner_context == nil ->
         path_result(
@@ -169,6 +215,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
           owner_context,
           :unconfirmed,
           repositories,
+          expected_repositories,
+          missing_repositories,
           "Cannot verify repository access because owner context is missing.",
           @default_repo_access_remediation,
           definition.owner_context_error_type,
@@ -184,9 +232,30 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
           owner_context,
           :unconfirmed,
           repositories,
+          expected_repositories,
+          missing_repositories,
           "Credential path is configured but did not confirm accessible repositories for owner context.",
           @default_repo_access_remediation,
           definition.repo_access_error_type,
+          nil,
+          checked_at
+        )
+
+      credentials_present?(definition) and missing_repositories != [] ->
+        path_result(
+          definition,
+          :invalid,
+          previous_status,
+          owner_context,
+          :unconfirmed,
+          repositories,
+          expected_repositories,
+          missing_repositories,
+          "Credential path is configured but GitHub App installation access is missing expected repositories: #{Enum.join(missing_repositories, ", ")}.",
+          Map.get(definition, :installation_access_remediation) ||
+            @default_installation_access_remediation,
+          Map.get(definition, :installation_access_error_type) ||
+            definition.repo_access_error_type,
           nil,
           checked_at
         )
@@ -199,6 +268,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
           owner_context,
           :confirmed,
           repositories,
+          expected_repositories,
+          missing_repositories,
           "Credential path is configured and confirms repository access for owner context.",
           "Credential path is ready.",
           nil,
@@ -214,6 +285,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
           owner_context,
           :unconfirmed,
           repositories,
+          expected_repositories,
+          missing_repositories,
           definition.not_configured_detail,
           definition.not_configured_remediation,
           definition.not_configured_error_type,
@@ -230,6 +303,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
          owner_context,
          repository_access,
          repositories,
+         expected_repositories,
+         missing_repositories,
          detail,
          remediation,
          error_type,
@@ -245,6 +320,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
       owner_context: owner_context,
       repository_access: repository_access,
       repositories: repositories,
+      expected_repositories: expected_repositories,
+      missing_repositories: missing_repositories,
       detail: detail,
       remediation: remediation,
       error_type: error_type,
@@ -307,12 +384,21 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
     )
   end
 
-  defp normalize_report({:error, reason}, default_checked_at, _previous_statuses, default_owner_context) do
+  defp normalize_report(
+         {:error, reason},
+         default_checked_at,
+         _previous_statuses,
+         default_owner_context
+       ) do
     checker_error_report(reason, default_checked_at, default_owner_context)
   end
 
   defp normalize_report(other, default_checked_at, _previous_statuses, default_owner_context) do
-    checker_error_report({:invalid_checker_result, other}, default_checked_at, default_owner_context)
+    checker_error_report(
+      {:invalid_checker_result, other},
+      default_checked_at,
+      default_owner_context
+    )
   end
 
   defp checker_error_report(reason, checked_at, owner_context) do
@@ -324,6 +410,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
           :not_configured,
           owner_context,
           :unconfirmed,
+          [],
+          fetch_expected_repositories(definition),
           [],
           "Unable to verify GitHub credential path: #{inspect(reason)}",
           @default_checker_remediation,
@@ -349,7 +437,13 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
     end)
   end
 
-  defp normalize_path_result(path_result, default_checked_at, previous_statuses, owner_context, index)
+  defp normalize_path_result(
+         path_result,
+         default_checked_at,
+         previous_statuses,
+         owner_context,
+         index
+       )
        when is_map(path_result) do
     definition = default_path_definition(index)
 
@@ -363,13 +457,44 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
 
     previous_status =
       path_result
-      |> map_get(:previous_status, "previous_status", Map.get(previous_statuses, path, :not_configured))
+      |> map_get(
+        :previous_status,
+        "previous_status",
+        Map.get(previous_statuses, path, :not_configured)
+      )
       |> normalize_status(Map.get(previous_statuses, path, :not_configured))
 
     normalized_owner_context =
       path_result
       |> map_get(:owner_context, "owner_context", owner_context)
       |> normalize_owner_context(owner_context)
+
+    repository_access =
+      path_result
+      |> map_get(:repository_access, "repository_access", nil)
+      |> normalize_repository_access(default_repository_access(status))
+
+    repositories =
+      path_result
+      |> map_get(:repositories, "repositories", [])
+      |> normalize_repositories()
+
+    expected_repositories =
+      path_result
+      |> map_get(
+        :expected_repositories,
+        "expected_repositories",
+        fetch_expected_repositories(path_definition)
+      )
+      |> normalize_repositories()
+
+    default_missing_repositories =
+      missing_expected_repositories(expected_repositories, repositories)
+
+    missing_repositories =
+      path_result
+      |> map_get(:missing_repositories, "missing_repositories", default_missing_repositories)
+      |> normalize_repositories()
 
     %{
       path: path,
@@ -384,14 +509,10 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
         |> map_get(:transition, "transition", nil)
         |> normalize_text(transition_label(previous_status, status)),
       owner_context: normalized_owner_context,
-      repository_access:
-        path_result
-        |> map_get(:repository_access, "repository_access", nil)
-        |> normalize_repository_access(default_repository_access(status)),
-      repositories:
-        path_result
-        |> map_get(:repositories, "repositories", [])
-        |> normalize_repositories(),
+      repository_access: repository_access,
+      repositories: repositories,
+      expected_repositories: expected_repositories,
+      missing_repositories: missing_repositories,
       detail:
         path_result
         |> map_get(:detail, "detail", nil)
@@ -415,7 +536,13 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
     }
   end
 
-  defp normalize_path_result(_path_result, default_checked_at, previous_statuses, owner_context, index) do
+  defp normalize_path_result(
+         _path_result,
+         default_checked_at,
+         previous_statuses,
+         owner_context,
+         index
+       ) do
     definition = default_path_definition(index)
     previous_status = Map.get(previous_statuses, definition.path, :not_configured)
 
@@ -428,6 +555,8 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
       owner_context: owner_context,
       repository_access: :unconfirmed,
       repositories: [],
+      expected_repositories: fetch_expected_repositories(definition),
+      missing_repositories: [],
       detail: "GitHub credential check result was not a map.",
       remediation: @default_checker_remediation,
       error_type: "github_credential_invalid_result",
@@ -445,12 +574,18 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
         app_env: [:github_app_id, :github_app_private_key],
         repo_env: "GITHUB_APP_ACCESSIBLE_REPOS",
         repo_app_env: :github_app_accessible_repos,
+        expected_repo_env: "GITHUB_APP_EXPECTED_REPOS",
+        expected_repo_app_env: :github_app_expected_repos,
+        tracks_expected_repositories: true,
         not_configured_detail:
           "GitHub App credentials are not fully configured (`GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are required).",
         not_configured_remediation: "Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, then retry validation.",
         not_configured_error_type: "github_app_not_configured",
         owner_context_error_type: "github_app_owner_context_missing",
-        repo_access_error_type: "github_app_repository_access_unverified"
+        repo_access_error_type: "github_app_repository_access_unverified",
+        installation_access_error_type: "github_app_installation_access_missing_repositories",
+        installation_access_remediation:
+          "Grant GitHub App installation access to expected repositories and retry validation."
       },
       %{
         path: :pat,
@@ -459,6 +594,7 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
         app_env: [:github_pat],
         repo_env: "GITHUB_PAT_ACCESSIBLE_REPOS",
         repo_app_env: :github_pat_accessible_repos,
+        tracks_expected_repositories: false,
         not_configured_detail: "No GitHub personal access token fallback is configured (`GITHUB_PAT`).",
         not_configured_remediation: "Set `GITHUB_PAT` and retry validation.",
         not_configured_error_type: "github_pat_not_configured",
@@ -529,6 +665,32 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
       repositories ->
         repositories
     end
+  end
+
+  defp fetch_expected_repositories(definition) do
+    if Map.get(definition, :tracks_expected_repositories, false) do
+      configured_expected_repositories =
+        case {Map.get(definition, :expected_repo_env), Map.get(definition, :expected_repo_app_env)} do
+          {env_key, app_env_key} when is_binary(env_key) and is_atom(app_env_key) ->
+            repository_values(env_key, app_env_key)
+
+          _other ->
+            []
+        end
+
+      case configured_expected_repositories do
+        [] -> repository_values("GITHUB_EXPECTED_REPOS", :github_expected_repos)
+        repositories -> repositories
+      end
+    else
+      []
+    end
+  end
+
+  defp missing_expected_repositories(expected_repositories, repositories) do
+    Enum.reject(expected_repositories, fn expected_repository ->
+      expected_repository in repositories
+    end)
   end
 
   defp normalize_path(:github_app, _default), do: :github_app
@@ -615,14 +777,18 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
     String.trim(value)
   end
 
+  defp normalize_error_type(nil, fallback), do: fallback
+
   defp normalize_error_type(value, fallback) when is_atom(value) do
     value
     |> Atom.to_string()
     |> normalize_error_type(fallback)
   end
 
-  defp normalize_error_type(nil, fallback), do: fallback
   defp normalize_error_type(_value, fallback), do: fallback
+
+  defp normalize_boolean(value, _fallback) when is_boolean(value), do: value
+  defp normalize_boolean(_value, fallback), do: fallback
 
   defp normalize_owner_context(value, fallback) when is_binary(value) do
     value
@@ -662,10 +828,165 @@ defmodule JidoCode.Setup.GitHubCredentialChecks do
 
   defp default_error_type(_path_definition, :ready), do: nil
   defp default_error_type(path_definition, :invalid), do: path_definition.repo_access_error_type
-  defp default_error_type(path_definition, :not_configured), do: path_definition.not_configured_error_type
+
+  defp default_error_type(path_definition, :not_configured),
+    do: path_definition.not_configured_error_type
 
   defp default_repository_access(:ready), do: :confirmed
   defp default_repository_access(_status), do: :unconfirmed
+
+  @spec integration_health(report()) :: integration_health()
+  def integration_health(%{checked_at: checked_at, status: status, paths: paths})
+      when is_list(paths) do
+    github_app_path =
+      Enum.find(paths, fn path_result -> path_result.path == :github_app end) || %{}
+
+    expected_repositories =
+      github_app_path
+      |> Map.get(:expected_repositories, [])
+      |> normalize_repositories()
+
+    missing_repositories =
+      github_app_path
+      |> Map.get(:missing_repositories, [])
+      |> normalize_repositories()
+
+    github_app_status =
+      github_app_path
+      |> Map.get(:status, :not_configured)
+      |> normalize_status(:not_configured)
+
+    github_app_repository_access =
+      github_app_path
+      |> Map.get(:repository_access, :unconfirmed)
+      |> normalize_repository_access(:unconfirmed)
+
+    %{
+      readiness_status: normalize_report_status(status, overall_status(paths)),
+      github_app_status: github_app_status,
+      github_app_ready:
+        github_app_status == :ready and github_app_repository_access == :confirmed and
+          missing_repositories == [],
+      github_app_repository_access: github_app_repository_access,
+      expected_repositories: expected_repositories,
+      missing_repositories: missing_repositories,
+      last_checked_at: checked_at
+    }
+  end
+
+  def integration_health(_report) do
+    checked_at = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    %{
+      readiness_status: :blocked,
+      github_app_status: :not_configured,
+      github_app_ready: false,
+      github_app_repository_access: :unconfirmed,
+      expected_repositories: [],
+      missing_repositories: [],
+      last_checked_at: checked_at
+    }
+  end
+
+  defp with_integration_health(%{checked_at: _checked_at, paths: _paths} = report) do
+    Map.put(report, :integration_health, integration_health(report))
+  end
+
+  defp with_integration_health(report), do: report
+
+  defp serialize_integration_health(%{
+         readiness_status: readiness_status,
+         github_app_status: github_app_status,
+         github_app_ready: github_app_ready,
+         github_app_repository_access: github_app_repository_access,
+         expected_repositories: expected_repositories,
+         missing_repositories: missing_repositories,
+         last_checked_at: last_checked_at
+       }) do
+    %{
+      "readiness_status" => Atom.to_string(readiness_status),
+      "github_app_status" => Atom.to_string(github_app_status),
+      "github_app_ready" => github_app_ready,
+      "github_app_repository_access" => Atom.to_string(github_app_repository_access),
+      "expected_repositories" => expected_repositories,
+      "missing_repositories" => missing_repositories,
+      "last_checked_at" => format_datetime(last_checked_at)
+    }
+  end
+
+  defp serialize_integration_health(_integration_health), do: %{}
+
+  defp integration_health_from_state(state, checked_at, paths) when is_map(state) do
+    default_integration_health =
+      integration_health(%{
+        checked_at: checked_at,
+        status: overall_status(paths),
+        paths: paths
+      })
+
+    %{
+      readiness_status:
+        state
+        |> map_get(
+          :readiness_status,
+          "readiness_status",
+          default_integration_health.readiness_status
+        )
+        |> normalize_report_status(default_integration_health.readiness_status),
+      github_app_status:
+        state
+        |> map_get(
+          :github_app_status,
+          "github_app_status",
+          default_integration_health.github_app_status
+        )
+        |> normalize_status(default_integration_health.github_app_status),
+      github_app_ready:
+        state
+        |> map_get(
+          :github_app_ready,
+          "github_app_ready",
+          default_integration_health.github_app_ready
+        )
+        |> normalize_boolean(default_integration_health.github_app_ready),
+      github_app_repository_access:
+        state
+        |> map_get(
+          :github_app_repository_access,
+          "github_app_repository_access",
+          default_integration_health.github_app_repository_access
+        )
+        |> normalize_repository_access(default_integration_health.github_app_repository_access),
+      expected_repositories:
+        state
+        |> map_get(
+          :expected_repositories,
+          "expected_repositories",
+          default_integration_health.expected_repositories
+        )
+        |> normalize_repositories(),
+      missing_repositories:
+        state
+        |> map_get(
+          :missing_repositories,
+          "missing_repositories",
+          default_integration_health.missing_repositories
+        )
+        |> normalize_repositories(),
+      last_checked_at:
+        state
+        |> map_get(:last_checked_at, "last_checked_at", checked_at)
+        |> normalize_checked_at(checked_at)
+    }
+  end
+
+  defp integration_health_from_state(_state, checked_at, paths) do
+    integration_health(%{
+      checked_at: checked_at,
+      status: overall_status(paths),
+      paths: paths
+    })
+  end
 
   defp format_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp format_datetime(_), do: nil
