@@ -99,6 +99,31 @@ defmodule JidoCodeWeb.RunDetailLive do
   def handle_event("retry_run", _params, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("retry_step", _params, %{assigns: %{run: %WorkflowRun{} = run}} = socket) do
+    case WorkflowRun.retry_step(run, %{actor: approving_actor(socket)}) do
+      {:ok, %WorkflowRun{} = retried_run} ->
+        {:noreply,
+         socket
+         |> assign(:retry_action_error, nil)
+         |> assign(:approval_action_error, nil)
+         |> put_flash(
+           :info,
+           "Step-level retry started at #{retried_run.current_step} as #{retried_run.run_id}."
+         )
+         |> push_navigate(to: ~p"/projects/#{socket.assigns.project_id}/runs/#{retried_run.run_id}")}
+
+      {:error, typed_failure} ->
+        {:noreply,
+         socket
+         |> refresh_run_assigns()
+         |> assign(:retry_action_error, normalize_retry_action_failure(typed_failure))}
+    end
+  end
+
+  @impl true
+  def handle_event("retry_step", _params, socket), do: {:noreply, socket}
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={%{}}>
@@ -235,6 +260,36 @@ defmodule JidoCodeWeb.RunDetailLive do
                 Retry full run
               </button>
 
+              <%= if @step_retry_state.available do %>
+                <section id="run-detail-step-retry-panel" class="space-y-2 rounded border border-base-300 p-3">
+                  <p id="run-detail-step-retry-note" class="text-sm text-base-content/80">
+                    Restarts retry at contract step <span class="font-mono">{@step_retry_state.retry_step}</span>
+                    while preserving prior failure lineage.
+                  </p>
+                  <button
+                    id="run-detail-step-retry-button"
+                    type="button"
+                    class="btn btn-outline"
+                    phx-click="retry_step"
+                  >
+                    Retry from contract step
+                  </button>
+                </section>
+              <% else %>
+                <section
+                  :if={@step_retry_state.guidance}
+                  id="run-detail-step-retry-guidance"
+                  class="space-y-1 rounded border border-base-300/70 bg-base-200/40 p-3"
+                >
+                  <p id="run-detail-step-retry-guidance-detail" class="text-sm text-base-content/80">
+                    {@step_retry_state.guidance.detail}
+                  </p>
+                  <p id="run-detail-step-retry-guidance-remediation" class="text-sm text-base-content/80">
+                    {@step_retry_state.guidance.remediation}
+                  </p>
+                </section>
+              <% end %>
+
               <%= if @retry_action_error do %>
                 <section
                   id="run-detail-retry-action-error"
@@ -337,6 +392,7 @@ defmodule JidoCodeWeb.RunDetailLive do
     |> assign(:retry_lineage_entries, [])
     |> assign(:approval_context, nil)
     |> assign(:approval_context_blocker, nil)
+    |> assign(:step_retry_state, step_retry_state(nil))
     |> assign(:approval_action_error, nil)
     |> assign(:retry_action_error, nil)
   end
@@ -356,6 +412,7 @@ defmodule JidoCodeWeb.RunDetailLive do
     |> assign(:retry_lineage_entries, retry_lineage_entries(run))
     |> assign(:approval_context, approval_context(run))
     |> assign(:approval_context_blocker, approval_context_blocker(run))
+    |> assign(:step_retry_state, step_retry_state(run))
   end
 
   defp refresh_run_assigns(%{assigns: %{project_id: project_id, run_id: run_id}} = socket) do
@@ -472,6 +529,35 @@ defmodule JidoCodeWeb.RunDetailLive do
   end
 
   defp normalize_retry_lineage_entries(_entries), do: []
+
+  defp step_retry_state(%WorkflowRun{} = run) do
+    case WorkflowRun.step_retry_contract(run) do
+      {:ok, step_retry_contract} ->
+        %{
+          available: true,
+          retry_step:
+            step_retry_contract
+            |> map_get(:retry_step, "retry_step")
+            |> normalize_optional_string(),
+          guidance: nil
+        }
+
+      {:error, typed_failure} ->
+        %{
+          available: false,
+          retry_step: nil,
+          guidance: normalize_retry_action_failure(typed_failure)
+        }
+    end
+  end
+
+  defp step_retry_state(_run) do
+    %{
+      available: false,
+      retry_step: nil,
+      guidance: nil
+    }
+  end
 
   defp full_run_retry_available?(status) when is_atom(status), do: status in [:failed, :cancelled]
 

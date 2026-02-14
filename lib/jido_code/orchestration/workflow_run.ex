@@ -14,8 +14,10 @@ defmodule JidoCode.Orchestration.WorkflowRun do
   @approval_action_operation "approve_run"
   @rejection_action_operation "reject_run"
   @retry_action_operation "retry_run"
+  @step_retry_action_operation "retry_step"
   @approval_resume_step "resume_execution"
   @full_run_retry_policy "full_run"
+  @step_level_retry_policy "step_level"
   @retry_initial_step "queued"
   @retryable_terminal_statuses [:failed, :cancelled]
   @rejection_policy_default "cancel"
@@ -426,6 +428,93 @@ defmodule JidoCode.Orchestration.WorkflowRun do
      retry_action_failure(
        "invalid_run",
        "Run reference is invalid and cannot be retried.",
+       "Reload run detail and retry once the failed run is available."
+     )}
+  end
+
+  @spec step_retry_contract(t()) :: {:ok, map()} | {:error, map()}
+  def step_retry_contract(run)
+
+  def step_retry_contract(run) when is_struct(run, __MODULE__) do
+    run
+    |> reload_run()
+    |> validate_step_retry_policy(%{})
+  end
+
+  def step_retry_contract(_run) do
+    {:error,
+     step_retry_action_failure(
+       "invalid_run",
+       "Run reference is invalid and step-level retry contract cannot be resolved.",
+       "Reload run detail and retry once the failed run is available."
+     )}
+  end
+
+  @spec retry_step(t(), map() | nil) :: {:ok, t()} | {:error, map()}
+  def retry_step(run, params \\ nil)
+
+  def retry_step(run, params) when is_struct(run, __MODULE__) do
+    params = if(is_map(params), do: params, else: %{})
+    persisted_run = reload_run(run)
+    retry_started_at = params |> map_get(:retry_started_at, "retry_started_at") |> normalize_datetime()
+    actor = params |> map_get(:actor, "actor", %{}) |> normalize_actor()
+
+    with :ok <- validate_retry_preconditions(persisted_run),
+         {:ok, step_retry_contract} <- validate_step_retry_policy(persisted_run, params),
+         next_retry_attempt <- next_retry_attempt(persisted_run),
+         next_retry_run_id <- next_retry_run_id(persisted_run, next_retry_attempt),
+         retry_lineage <- build_retry_lineage(persisted_run, actor, retry_started_at),
+         retry_trigger <-
+           build_step_retry_trigger(
+             persisted_run,
+             step_retry_contract,
+             actor,
+             retry_started_at,
+             next_retry_attempt
+           ),
+         {:ok, retried_run} <-
+           create(%{
+             run_id: next_retry_run_id,
+             project_id: Map.get(persisted_run, :project_id),
+             workflow_name: Map.get(persisted_run, :workflow_name),
+             workflow_version: Map.get(persisted_run, :workflow_version),
+             trigger: retry_trigger,
+             inputs: persisted_run |> Map.get(:inputs, %{}) |> normalize_map(),
+             input_metadata: persisted_run |> Map.get(:input_metadata, %{}) |> normalize_map(),
+             initiating_actor: retry_initiating_actor(persisted_run, actor),
+             current_step: Map.fetch!(step_retry_contract, :retry_step),
+             step_results:
+               step_retry_context_step_results(
+                 persisted_run,
+                 next_retry_attempt,
+                 Map.fetch!(step_retry_contract, :retry_step)
+               ),
+             started_at: retry_started_at,
+             retry_of_run_id: Map.get(persisted_run, :run_id),
+             retry_attempt: next_retry_attempt,
+             retry_lineage: retry_lineage
+           }) do
+      {:ok, retried_run}
+    else
+      {:error, typed_failure} when is_map(typed_failure) ->
+        {:error, typed_failure}
+
+      {:error, reason} ->
+        {:error,
+         step_retry_action_failure(
+           "run_creation_failed",
+           "Step-level retry could not start a new run attempt.",
+           "Retry from run detail after resolving step-level retry preconditions.",
+           reason
+         )}
+    end
+  end
+
+  def retry_step(_run, _params) do
+    {:error,
+     step_retry_action_failure(
+       "invalid_run",
+       "Run reference is invalid and cannot start a step-level retry.",
        "Reload run detail and retry once the failed run is available."
      )}
   end
@@ -1015,6 +1104,44 @@ defmodule JidoCode.Orchestration.WorkflowRun do
 
   defp validate_full_run_retry_policy(_run), do: {:ok, %{}}
 
+  defp validate_step_retry_policy(run, params)
+       when is_struct(run, __MODULE__) and is_map(params) do
+    retry_policy =
+      run
+      |> Map.get(:trigger, %{})
+      |> normalize_map()
+      |> trigger_retry_policy()
+
+    requested_retry_step =
+      params
+      |> map_get(:retry_step, "retry_step")
+      |> normalize_optional_string()
+
+    if step_retry_declared?(retry_policy) do
+      case resolve_step_retry_target(retry_policy, requested_retry_step) do
+        {:ok, retry_step} ->
+          {:ok, %{retry_policy: retry_policy, retry_step: retry_step}}
+
+        {:error, typed_failure} ->
+          {:error, typed_failure}
+      end
+    else
+      {:error, step_retry_policy_violation_failure(retry_policy)}
+    end
+  end
+
+  defp validate_step_retry_policy(run, _params) when is_struct(run, __MODULE__),
+    do: validate_step_retry_policy(run, %{})
+
+  defp validate_step_retry_policy(_run, _params) do
+    {:error,
+     step_retry_action_failure(
+       "invalid_run",
+       "Run reference is invalid and step-level retry policy could not be evaluated.",
+       "Reload run detail and retry once the failed run is available."
+     )}
+  end
+
   defp retry_policy_violation_failure(retry_policy) do
     retry_mode =
       retry_policy
@@ -1034,6 +1161,33 @@ defmodule JidoCode.Orchestration.WorkflowRun do
       "policy_violation",
       detail,
       "Update workflow retry policy to permit full-run retry, or start a fresh manual run."
+    )
+    |> Map.put(:policy, retry_policy)
+  end
+
+  defp step_retry_policy_violation_failure(retry_policy) do
+    step_retry_action_failure(
+      "policy_violation",
+      "Step-level retry is disallowed because workflow contract does not declare step retry capability.",
+      "Update workflow retry policy to declare step-level retry, or use full-run retry."
+    )
+    |> Map.put(:policy, retry_policy)
+  end
+
+  defp step_retry_policy_invalid_failure(retry_policy) do
+    step_retry_action_failure(
+      "policy_invalid",
+      "Step-level retry is declared but no retry step target is configured.",
+      "Declare retry_policy.retry_step or retry_policy.allowed_steps before retrying."
+    )
+    |> Map.put(:policy, retry_policy)
+  end
+
+  defp step_retry_step_not_allowed_failure(retry_policy, retry_step, allowed_steps) do
+    step_retry_action_failure(
+      "policy_violation",
+      "Step-level retry step #{inspect(retry_step)} is not allowed by workflow contract.",
+      "Retry with one of the contract-declared step targets: #{Enum.join(allowed_steps, ", ")}."
     )
     |> Map.put(:policy, retry_policy)
   end
@@ -1182,6 +1336,35 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     |> maybe_put_retry_policy(retry_policy)
   end
 
+  defp build_step_retry_trigger(
+         run,
+         step_retry_contract,
+         actor,
+         retry_started_at,
+         retry_attempt
+       ) do
+    trigger =
+      run
+      |> Map.get(:trigger, %{})
+      |> normalize_map()
+
+    retry_step = Map.fetch!(step_retry_contract, :retry_step)
+    retry_policy = Map.fetch!(step_retry_contract, :retry_policy)
+
+    retry_metadata = %{
+      "policy" => @step_level_retry_policy,
+      "retry_step" => retry_step,
+      "source_run_id" => run |> Map.get(:run_id) |> normalize_string("unknown"),
+      "attempt" => retry_attempt,
+      "actor" => actor,
+      "timestamp" => DateTime.to_iso8601(retry_started_at)
+    }
+
+    trigger
+    |> Map.put("retry", retry_metadata)
+    |> maybe_put_retry_policy(retry_policy)
+  end
+
   defp maybe_put_retry_policy(trigger, retry_policy) when is_map(retry_policy) do
     if map_size(retry_policy) == 0 do
       trigger
@@ -1210,6 +1393,17 @@ defmodule JidoCode.Orchestration.WorkflowRun do
         "policy" => @full_run_retry_policy,
         "retry_of_run_id" => run |> Map.get(:run_id) |> normalize_string("unknown"),
         "retry_attempt" => retry_attempt
+      }
+    }
+  end
+
+  defp step_retry_context_step_results(run, retry_attempt, retry_step) do
+    %{
+      "retry_context" => %{
+        "policy" => @step_level_retry_policy,
+        "retry_of_run_id" => run |> Map.get(:run_id) |> normalize_string("unknown"),
+        "retry_attempt" => retry_attempt,
+        "retry_step" => retry_step
       }
     }
   end
@@ -1363,6 +1557,182 @@ defmodule JidoCode.Orchestration.WorkflowRun do
 
   defp full_run_retry_allowed?(_retry_policy), do: true
 
+  defp step_retry_declared?(retry_policy) when is_map(retry_policy) do
+    retry_mode =
+      retry_policy
+      |> map_get(:mode, "mode")
+      |> normalize_retry_mode()
+
+    declared_retry_step = configured_step_retry_target(retry_policy)
+    allowed_steps = configured_step_retry_targets(retry_policy)
+
+    step_retry_flag =
+      retry_policy
+      |> map_get(
+        :step_retry,
+        "step_retry",
+        map_get(
+          retry_policy,
+          :step_level,
+          "step_level",
+          map_get(
+            retry_policy,
+            :allow_step_retry,
+            "allow_step_retry",
+            map_get(retry_policy, :allow_step_level, "allow_step_level")
+          )
+        )
+      )
+      |> normalize_optional_boolean()
+
+    cond do
+      step_retry_flag == false ->
+        false
+
+      step_retry_flag == true ->
+        true
+
+      retry_mode in ["step_only", "step_level", "step_level_only", "full_and_step", "full_run_and_step"] ->
+        true
+
+      is_binary(declared_retry_step) ->
+        true
+
+      allowed_steps != [] ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp step_retry_declared?(_retry_policy), do: false
+
+  defp resolve_step_retry_target(retry_policy, requested_retry_step) when is_map(retry_policy) do
+    declared_retry_step = configured_step_retry_target(retry_policy)
+    allowed_steps = configured_step_retry_targets(retry_policy)
+    requested_retry_step = normalize_optional_string(requested_retry_step)
+    retry_step = requested_retry_step || declared_retry_step || List.first(allowed_steps)
+
+    cond do
+      is_nil(retry_step) ->
+        {:error, step_retry_policy_invalid_failure(retry_policy)}
+
+      allowed_steps != [] and retry_step not in allowed_steps ->
+        {:error, step_retry_step_not_allowed_failure(retry_policy, retry_step, allowed_steps)}
+
+      true ->
+        {:ok, retry_step}
+    end
+  end
+
+  defp resolve_step_retry_target(_retry_policy, _requested_retry_step) do
+    {:error, step_retry_policy_invalid_failure(%{})}
+  end
+
+  defp configured_step_retry_target(retry_policy) when is_map(retry_policy) do
+    nested_retry_policy = nested_step_retry_policy(retry_policy)
+
+    direct_retry_step =
+      retry_policy
+      |> map_get(
+        :retry_step,
+        "retry_step",
+        map_get(
+          retry_policy,
+          :step,
+          "step",
+          map_get(retry_policy, :default_step, "default_step")
+        )
+      )
+      |> normalize_optional_string()
+
+    nested_retry_step =
+      nested_retry_policy
+      |> map_get(
+        :retry_step,
+        "retry_step",
+        map_get(
+          nested_retry_policy,
+          :step,
+          "step",
+          map_get(nested_retry_policy, :default_step, "default_step")
+        )
+      )
+      |> normalize_optional_string()
+
+    direct_retry_step || nested_retry_step
+  end
+
+  defp configured_step_retry_target(_retry_policy), do: nil
+
+  defp configured_step_retry_targets(retry_policy) when is_map(retry_policy) do
+    nested_retry_policy = nested_step_retry_policy(retry_policy)
+
+    direct_targets =
+      retry_policy
+      |> map_get(
+        :allowed_steps,
+        "allowed_steps",
+        map_get(retry_policy, :retry_steps, "retry_steps", map_get(retry_policy, :steps, "steps", []))
+      )
+      |> normalize_step_retry_targets()
+
+    nested_targets =
+      nested_retry_policy
+      |> map_get(
+        :allowed_steps,
+        "allowed_steps",
+        map_get(
+          nested_retry_policy,
+          :retry_steps,
+          "retry_steps",
+          map_get(nested_retry_policy, :steps, "steps", [])
+        )
+      )
+      |> normalize_step_retry_targets()
+
+    (direct_targets ++ nested_targets)
+    |> Enum.uniq()
+  end
+
+  defp configured_step_retry_targets(_retry_policy), do: []
+
+  defp nested_step_retry_policy(retry_policy) when is_map(retry_policy) do
+    cond do
+      is_map(map_get(retry_policy, :step_retry_policy, "step_retry_policy")) ->
+        retry_policy |> map_get(:step_retry_policy, "step_retry_policy") |> normalize_map()
+
+      is_map(map_get(retry_policy, :step_retry, "step_retry")) ->
+        retry_policy |> map_get(:step_retry, "step_retry") |> normalize_map()
+
+      is_map(map_get(retry_policy, :step_level, "step_level")) ->
+        retry_policy |> map_get(:step_level, "step_level") |> normalize_map()
+
+      true ->
+        %{}
+    end
+  end
+
+  defp nested_step_retry_policy(_retry_policy), do: %{}
+
+  defp normalize_step_retry_targets(value) when is_list(value) do
+    value
+    |> Enum.map(&normalize_optional_string/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_step_retry_targets(value) when is_binary(value) do
+    value
+    |> String.split(",")
+    |> Enum.map(&normalize_optional_string/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_step_retry_targets(_value), do: []
+
   defp normalize_retry_mode(mode) do
     mode
     |> normalize_optional_string()
@@ -1511,6 +1881,17 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     )
   end
 
+  defp step_retry_action_failure(reason_type, detail, remediation, reason \\ nil) do
+    action_failure(
+      @step_retry_action_operation,
+      reason_type,
+      detail,
+      remediation,
+      reason,
+      @retry_action_error_type
+    )
+  end
+
   defp action_failure(operation, reason_type, detail, remediation, reason) do
     action_failure(operation, reason_type, detail, remediation, reason, @approval_action_error_type)
   end
@@ -1598,6 +1979,25 @@ defmodule JidoCode.Orchestration.WorkflowRun do
   end
 
   defp format_optional_datetime(_datetime), do: nil
+
+  defp normalize_optional_boolean(value) when is_boolean(value), do: value
+  defp normalize_optional_boolean(value) when is_integer(value), do: value != 0
+
+  defp normalize_optional_boolean(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      "on" -> true
+      "false" -> false
+      "0" -> false
+      "no" -> false
+      "off" -> false
+      _other -> nil
+    end
+  end
+
+  defp normalize_optional_boolean(_value), do: nil
 
   defp normalize_boolean(value, _default) when is_boolean(value), do: value
 

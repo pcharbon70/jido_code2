@@ -719,6 +719,161 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
     assert no_retry_runs == []
   end
 
+  test "shows step-level retry control only for workflows that declare step retry and preserves lineage on retry",
+       %{conn: _conn} do
+    register_owner("step-retry-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("step-retry-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-step-retry",
+        github_full_name: "owner/repo-run-detail-step-retry",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    failed_run_id = "run-detail-step-retry-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: failed_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{
+          source: "workflows",
+          mode: "manual",
+          retry_policy: %{full_run: false, mode: "step_only", retry_step: "run_tests"}
+        },
+        inputs: %{"task_summary" => "Retry from contract step"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 05:20:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "2 tests failed."}
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:21:00Z]
+      })
+
+    {:ok, _run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:22:00Z]
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{failed_run_id}",
+        on_error: :warn
+      )
+
+    assert has_element?(view, "#run-detail-step-retry-button")
+    assert has_element?(view, "#run-detail-step-retry-note", "run_tests")
+    refute has_element?(view, "#run-detail-step-retry-guidance")
+
+    render_click(element(view, "#run-detail-step-retry-button"))
+
+    retry_run_id = "#{failed_run_id}-retry-2"
+    retry_path = ~p"/projects/#{project.id}/runs/#{retry_run_id}"
+    assert_redirect(view, retry_path)
+
+    {:ok, retried_run} =
+      WorkflowRun.get_by_project_and_run_id(%{
+        project_id: project.id,
+        run_id: retry_run_id
+      })
+
+    assert retried_run.current_step == "run_tests"
+    assert retried_run.retry_of_run_id == failed_run_id
+    assert get_in(retried_run.step_results, ["retry_context", "policy"]) == "step_level"
+    assert get_in(retried_run.step_results, ["retry_context", "retry_step"]) == "run_tests"
+
+    {:ok, retry_view, _html} = live(recycle(authed_conn), retry_path, on_error: :warn)
+    assert has_element?(retry_view, "#run-detail-retry-parent-run", failed_run_id)
+    assert has_element?(retry_view, "#run-detail-retry-lineage-run-id-1", failed_run_id)
+  end
+
+  test "hides step-level retry control and shows guidance when workflow contract does not declare step retry",
+       %{conn: _conn} do
+    register_owner("step-retry-guidance-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("step-retry-guidance-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-step-retry-guidance",
+        github_full_name: "owner/repo-run-detail-step-retry-guidance",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    failed_run_id = "run-detail-step-retry-guidance-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: failed_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Step-level retry guidance"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 05:30:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "1 test failed."}
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:31:00Z]
+      })
+
+    {:ok, _run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:32:00Z]
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{failed_run_id}",
+        on_error: :warn
+      )
+
+    refute has_element?(view, "#run-detail-step-retry-button")
+    assert has_element?(view, "#run-detail-step-retry-guidance-detail", "does not declare")
+    assert has_element?(view, "#run-detail-step-retry-guidance-remediation", "step-level retry")
+  end
+
   defp register_owner(email, password) do
     strategy = Info.strategy!(User, :password)
 

@@ -718,6 +718,135 @@ defmodule JidoCode.Orchestration.WorkflowRunTest do
     assert persisted_blocked_run.status == :failed
   end
 
+  test "step-level retry starts from contract step and preserves failure lineage when policy explicitly allows it" do
+    {:ok, project} = create_project("owner/repo-step-retry")
+    failed_run_id = "run-step-retry-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: failed_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{
+          source: "workflows",
+          mode: "manual",
+          retry_policy: %{full_run: false, mode: "step_only", retry_step: "run_tests"}
+        },
+        inputs: %{"task_summary" => "Retry from failed test step"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 04:20:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "2 tests failed."},
+          "diff_summary" => "7 files changed (+91/-15)."
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:21:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:22:00Z]
+      })
+
+    {:ok, retried_run} =
+      WorkflowRun.retry_step(run, %{
+        actor: %{id: "maintainer-7", email: "maintainer-7@example.com"},
+        retry_started_at: ~U[2026-02-15 04:23:00Z]
+      })
+
+    assert retried_run.run_id == "#{failed_run_id}-retry-2"
+    assert retried_run.status == :pending
+    assert retried_run.current_step == "run_tests"
+    assert retried_run.retry_of_run_id == failed_run_id
+    assert retried_run.retry_attempt == 2
+    assert get_in(retried_run.step_results, ["retry_context", "policy"]) == "step_level"
+    assert get_in(retried_run.step_results, ["retry_context", "retry_of_run_id"]) == failed_run_id
+    assert get_in(retried_run.step_results, ["retry_context", "retry_attempt"]) == 2
+    assert get_in(retried_run.step_results, ["retry_context", "retry_step"]) == "run_tests"
+
+    assert [%{"run_id" => ^failed_run_id} = lineage_entry] = retried_run.retry_lineage
+    assert lineage_entry["typed_failure"]["reason_type"] == "verification_failed"
+    assert lineage_entry["failure_artifacts"]["failure_report"]["step"] == "run_tests"
+    assert lineage_entry["retry_actor"]["email"] == "maintainer-7@example.com"
+  end
+
+  test "step-level retry is blocked with guidance when workflow contract does not declare capability" do
+    {:ok, project} = create_project("owner/repo-step-retry-policy-blocked")
+    blocked_run_id = "run-step-retry-blocked-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: blocked_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Step retry should be blocked"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 04:30:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "1 test failed."}
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:31:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:32:00Z]
+      })
+
+    assert {:error, typed_failure} =
+             WorkflowRun.retry_step(run, %{
+               actor: %{id: "maintainer-8", email: "maintainer-8@example.com"}
+             })
+
+    assert typed_failure.error_type == "workflow_run_retry_action_failed"
+    assert typed_failure.operation == "retry_step"
+    assert typed_failure.reason_type == "policy_violation"
+    assert typed_failure.detail =~ "does not declare step retry capability"
+    assert typed_failure.remediation =~ "step-level retry"
+    assert typed_failure.policy == %{}
+
+    {:ok, no_retry_runs} =
+      WorkflowRun.read(
+        query: [
+          filter: [project_id: project.id, run_id: "#{blocked_run_id}-retry-2"]
+        ]
+      )
+
+    assert no_retry_runs == []
+  end
+
   test "publishes required run topic events with run metadata across step approval and terminal transitions" do
     {:ok, project} = create_project("owner/repo-run-events")
 
