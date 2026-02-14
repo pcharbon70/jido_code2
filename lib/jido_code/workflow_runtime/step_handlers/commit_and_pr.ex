@@ -96,6 +96,15 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
   @push_auth_remediation """
   Refresh GitHub credentials, verify repository access, then retry CommitAndPR shipping.
   """
+  @dry_run_validation_error_type "workflow_commit_and_pr_dry_run_validation_failed"
+  @dry_run_validation_operation "validate_dry_run_shipping_mode"
+  @dry_run_validation_stage "pre_ship_dry_run_policy"
+  @dry_run_validation_remediation """
+  Resolve dry-run policy conflicts by disabling side-effect shipping directives, then retry CommitAndPR shipping.
+  """
+  @dry_run_shipping_mode "dry_run"
+  @dry_run_shipping_mode_aliases ~w(dry_run dry-run dryrun preview report_only)
+  @ship_shipping_mode_aliases ~w(ship full push commit_push_pr)
   @push_auth_reason_fragments [
     "auth",
     "authentication",
@@ -167,10 +176,22 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
          {:ok, binary_file_policy_check} <-
            validate_binary_file_policy(args, resolved_branch_context, opts),
          {:ok, commit_message_contract_check} <-
-           validate_commit_message_contract(args, resolved_branch_context, opts) do
-      maybe_probe_commit(resolved_branch_context, opts)
+           validate_commit_message_contract(args, resolved_branch_context, opts),
+         {:ok, dry_run_context} <-
+           validate_dry_run_shipping_mode(args, resolved_branch_context, opts) do
+      dry_run_bundle =
+        dry_run_artifact(
+          dry_run_context,
+          workspace_policy_check,
+          secret_scan_policy_check,
+          diff_size_policy_check,
+          binary_file_policy_check,
+          commit_message_contract_check
+        )
 
-      case maybe_execute_push(args, resolved_branch_context, branch_setup, opts) do
+      maybe_probe_commit(resolved_branch_context, opts, dry_run_context)
+
+      case maybe_execute_push(args, resolved_branch_context, branch_setup, opts, dry_run_context) do
         {:ok, push_execution} ->
           {:ok,
            %{
@@ -189,6 +210,7 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
                  diff_size_threshold: diff_size_policy_check,
                  binary_file_policy: binary_file_policy_check
                },
+               dry_run: dry_run_bundle,
                push: Map.get(push_execution, :push, %{}),
                push_auth_recovery: Map.get(push_execution, :push_auth_recovery, %{}),
                run_logs: Map.get(push_execution, :run_logs, [])
@@ -202,6 +224,7 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
                diff_size_threshold: diff_size_policy_check,
                binary_file_policy: binary_file_policy_check
              },
+             dry_run: dry_run_bundle,
              push: Map.get(push_execution, :push, %{}),
              push_auth_recovery: Map.get(push_execution, :push_auth_recovery, %{}),
              shipping_flow: Map.get(push_execution, :shipping_flow, %{}),
@@ -2455,36 +2478,362 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
 
   defp normalize_commit_message_text(_commit_message), do: ""
 
-  defp maybe_probe_commit(branch_context, opts) when is_map(branch_context) and is_list(opts) do
-    case Keyword.get(opts, :commit_probe) do
-      commit_probe when is_function(commit_probe, 1) ->
-        commit_probe.(branch_context)
-        :ok
+  defp validate_dry_run_shipping_mode(args, branch_context, opts)
+       when is_map(args) and is_map(branch_context) and is_list(opts) do
+    shipping_mode = shipping_mode_from_args(args)
 
-      _other ->
-        :ok
+    if dry_run_requested?(args, shipping_mode) do
+      incompatible_entries = dry_run_incompatible_entries(args, shipping_mode)
+
+      if incompatible_entries == [] do
+        {:ok,
+         %{
+           enabled: true,
+           mode: @dry_run_shipping_mode,
+           requested_via: dry_run_requested_via(args, shipping_mode)
+         }}
+      else
+        {:error,
+         dry_run_validation_error(
+           branch_context,
+           shipping_mode,
+           incompatible_entries
+         )}
+      end
+    else
+      {:ok, %{enabled: false, mode: shipping_mode || "ship", requested_via: []}}
+    end
+  end
+
+  defp validate_dry_run_shipping_mode(_args, _branch_context, _opts) do
+    {:ok, %{enabled: false, mode: "ship", requested_via: []}}
+  end
+
+  defp dry_run_requested?(args, shipping_mode) when is_map(args) do
+    dry_run_flag? =
+      args
+      |> map_get(:dry_run, "dry_run", map_get(args, :dry_run_mode, "dry_run_mode"))
+      |> normalize_optional_boolean()
+      |> Kernel.==(true)
+
+    dry_run_flag? or dry_run_mode?(shipping_mode)
+  end
+
+  defp dry_run_requested?(_args, shipping_mode), do: dry_run_mode?(shipping_mode)
+
+  defp dry_run_requested_via(args, shipping_mode) when is_map(args) do
+    dry_run_flag? =
+      args
+      |> map_get(:dry_run, "dry_run", map_get(args, :dry_run_mode, "dry_run_mode"))
+      |> normalize_optional_boolean()
+      |> Kernel.==(true)
+
+    []
+    |> maybe_append_requested_via(dry_run_flag?, "dry_run_flag")
+    |> maybe_append_requested_via(dry_run_mode?(shipping_mode), "shipping_mode")
+  end
+
+  defp dry_run_requested_via(_args, shipping_mode) do
+    maybe_append_requested_via([], dry_run_mode?(shipping_mode), "shipping_mode")
+  end
+
+  defp maybe_append_requested_via(requested_via, true, value)
+       when is_list(requested_via) and is_binary(value),
+       do: requested_via ++ [value]
+
+  defp maybe_append_requested_via(requested_via, _condition, _value), do: requested_via
+
+  defp dry_run_incompatible_entries(args, shipping_mode) when is_map(args) do
+    []
+    |> maybe_append_dry_run_incompatibility(
+      execute_push_requested?(args),
+      "execute_push",
+      true,
+      false,
+      "Dry-run mode cannot request push side effects."
+    )
+    |> maybe_append_dry_run_incompatibility(
+      push_enabled_requested?(args),
+      "push_enabled",
+      true,
+      false,
+      "Dry-run mode cannot request push side effects."
+    )
+    |> maybe_append_dry_run_incompatibility(
+      ship_mode?(shipping_mode),
+      "shipping_mode",
+      shipping_mode || "unspecified",
+      @dry_run_shipping_mode,
+      "Dry-run mode requires a dry-run-compatible shipping_mode value."
+    )
+    |> Kernel.++(policy_dry_run_incompatibilities(args))
+  end
+
+  defp dry_run_incompatible_entries(_args, _shipping_mode), do: []
+
+  defp execute_push_requested?(args) when is_map(args) do
+    args
+    |> map_get(:execute_push, "execute_push")
+    |> normalize_optional_boolean()
+    |> Kernel.==(true)
+  end
+
+  defp execute_push_requested?(_args), do: false
+
+  defp push_enabled_requested?(args) when is_map(args) do
+    args
+    |> map_get(:push_enabled, "push_enabled")
+    |> normalize_optional_boolean()
+    |> Kernel.==(true)
+  end
+
+  defp push_enabled_requested?(_args), do: false
+
+  defp policy_dry_run_incompatibilities(args) when is_map(args) do
+    [
+      {"workflow_policy", map_get(args, :workflow_policy, "workflow_policy")},
+      {"project_policy", map_get(args, :project_policy, "project_policy")},
+      {"shipping_policy", map_get(args, :shipping_policy, "shipping_policy")}
+    ]
+    |> Enum.flat_map(fn {policy_source, policy_map} ->
+      policy_dry_run_incompatibilities(policy_source, policy_map)
+    end)
+  end
+
+  defp policy_dry_run_incompatibilities(_args), do: []
+
+  defp policy_dry_run_incompatibilities(policy_source, policy_map)
+       when is_binary(policy_source) and is_map(policy_map) do
+    policy_shipping_mode =
+      policy_map
+      |> map_get(
+        :shipping_mode,
+        "shipping_mode",
+        map_get(
+          policy_map,
+          :mode,
+          "mode",
+          map_get(policy_map, :execution_mode, "execution_mode")
+        )
+      )
+      |> normalize_shipping_mode()
+
+    allow_dry_run =
+      policy_map
+      |> map_get(:allow_dry_run, "allow_dry_run")
+      |> normalize_optional_boolean()
+
+    dry_run_policy_value = map_get(policy_map, :dry_run, "dry_run")
+
+    []
+    |> maybe_append_dry_run_incompatibility(
+      ship_mode?(policy_shipping_mode),
+      "#{policy_source}.shipping_mode",
+      policy_shipping_mode || "unspecified",
+      @dry_run_shipping_mode,
+      "Policy shipping mode requires side effects and is incompatible with dry-run."
+    )
+    |> maybe_append_dry_run_incompatibility(
+      allow_dry_run == false,
+      "#{policy_source}.allow_dry_run",
+      false,
+      true,
+      "Policy explicitly disables dry-run mode."
+    )
+    |> maybe_append_dry_run_incompatibility(
+      dry_run_policy_disallowed?(dry_run_policy_value),
+      "#{policy_source}.dry_run",
+      dry_run_policy_value,
+      "enabled",
+      "Policy dry_run configuration disallows dry-run mode."
+    )
+  end
+
+  defp policy_dry_run_incompatibilities(_policy_source, _policy_map), do: []
+
+  defp maybe_append_dry_run_incompatibility(
+         incompatibilities,
+         true,
+         field,
+         observed,
+         expected,
+         detail
+       )
+       when is_list(incompatibilities) and is_binary(field) and is_binary(detail) do
+    incompatibilities ++
+      [
+        %{
+          field: field,
+          observed: observed,
+          expected: expected,
+          detail: detail
+        }
+      ]
+  end
+
+  defp maybe_append_dry_run_incompatibility(
+         incompatibilities,
+         _condition,
+         _field,
+         _observed,
+         _expected,
+         _detail
+       ),
+       do: incompatibilities
+
+  defp dry_run_policy_disallowed?(value) do
+    case normalize_optional_boolean(value) do
+      true ->
+        false
+
+      false ->
+        true
+
+      nil ->
+        value
+        |> normalize_optional_string()
+        |> case do
+          nil ->
+            false
+
+          normalized_value ->
+            String.downcase(normalized_value) in [
+              "disabled",
+              "disable",
+              "disallow",
+              "deny",
+              "forbid",
+              "forbidden",
+              "ship_only",
+              "require_side_effects"
+            ]
+        end
+    end
+  end
+
+  defp dry_run_mode?(shipping_mode) when is_binary(shipping_mode),
+    do: shipping_mode in @dry_run_shipping_mode_aliases
+
+  defp dry_run_mode?(_shipping_mode), do: false
+
+  defp ship_mode?(shipping_mode) when is_binary(shipping_mode),
+    do: shipping_mode in @ship_shipping_mode_aliases
+
+  defp ship_mode?(_shipping_mode), do: false
+
+  defp dry_run_enabled?(dry_run_context) when is_map(dry_run_context) do
+    dry_run_context
+    |> map_get(:enabled, "enabled")
+    |> normalize_optional_boolean()
+    |> Kernel.==(true)
+  end
+
+  defp dry_run_enabled?(_dry_run_context), do: false
+
+  defp shipping_mode_from_args(args) when is_map(args) do
+    args
+    |> map_get(:shipping_mode, "shipping_mode")
+    |> normalize_shipping_mode()
+  end
+
+  defp shipping_mode_from_args(_args), do: nil
+
+  defp maybe_probe_commit(branch_context, opts, dry_run_context)
+       when is_map(branch_context) and is_list(opts) and is_map(dry_run_context) do
+    if dry_run_enabled?(dry_run_context) do
+      :ok
+    else
+      case Keyword.get(opts, :commit_probe) do
+        commit_probe when is_function(commit_probe, 1) ->
+          commit_probe.(branch_context)
+          :ok
+
+        _other ->
+          :ok
+      end
     end
   rescue
     _exception -> :ok
   end
 
-  defp maybe_probe_commit(_branch_context, _opts), do: :ok
+  defp maybe_probe_commit(_branch_context, _opts, _dry_run_context), do: :ok
 
-  defp maybe_execute_push(args, branch_context, branch_setup, opts)
-       when is_map(args) and is_map(branch_context) and is_list(opts) do
-    if push_requested?(args, opts) do
-      execute_push_with_auth_retry(args, branch_context, branch_setup, opts)
+  defp maybe_execute_push(args, branch_context, branch_setup, opts, dry_run_context)
+       when is_map(args) and is_map(branch_context) and is_list(opts) and is_map(dry_run_context) do
+    cond do
+      dry_run_enabled?(dry_run_context) ->
+        {:ok, dry_run_push_execution(branch_context, dry_run_context)}
+
+      push_requested?(args, opts) ->
+        execute_push_with_auth_retry(args, branch_context, branch_setup, opts)
+
+      true ->
+        {:ok, skipped_push_execution(branch_context)}
+    end
+  end
+
+  defp maybe_execute_push(_args, branch_context, _branch_setup, _opts, dry_run_context)
+       when is_map(branch_context) and is_map(dry_run_context) do
+    if dry_run_enabled?(dry_run_context) do
+      {:ok, dry_run_push_execution(branch_context, dry_run_context)}
     else
       {:ok, skipped_push_execution(branch_context)}
     end
   end
 
-  defp maybe_execute_push(_args, branch_context, _branch_setup, _opts)
-       when is_map(branch_context),
-       do: {:ok, skipped_push_execution(branch_context)}
-
-  defp maybe_execute_push(_args, _branch_context, _branch_setup, _opts),
+  defp maybe_execute_push(_args, _branch_context, _branch_setup, _opts, _dry_run_context),
     do: {:ok, skipped_push_execution(%{})}
+
+  defp dry_run_artifact(
+         %{enabled: true} = dry_run_context,
+         workspace_policy_check,
+         secret_scan_policy_check,
+         diff_size_policy_check,
+         binary_file_policy_check,
+         commit_message_contract_check
+       ) do
+    requested_via =
+      dry_run_context
+      |> map_get(:requested_via, "requested_via", [])
+      |> case do
+        values when is_list(values) -> values
+        value when is_binary(value) -> [value]
+        _other -> []
+      end
+
+    %{
+      enabled: true,
+      mode: @dry_run_shipping_mode,
+      status: "completed",
+      detail: "Dry-run mode generated review artifacts and suppressed commit, push, and PR side effects.",
+      suppressed_actions: @blocked_shipping_actions,
+      requested_via: requested_via,
+      report: %{
+        diff_metrics: map_get(diff_size_policy_check, :metrics, "metrics", %{}),
+        diff_decision: map_get(diff_size_policy_check, :decision, "decision"),
+        diff_threshold_policy: map_get(diff_size_policy_check, :threshold_policy, "threshold_policy", %{}),
+        policy_checks: %{
+          workspace_cleanliness: map_get(workspace_policy_check, :status, "status"),
+          secret_scan: map_get(secret_scan_policy_check, :status, "status"),
+          diff_size_threshold: map_get(diff_size_policy_check, :status, "status"),
+          binary_file_policy: map_get(binary_file_policy_check, :status, "status")
+        },
+        commit_message_preview: map_get(commit_message_contract_check, :message, "message")
+      },
+      step_metadata: step_metadata(@dry_run_validation_stage, @dry_run_validation_operation),
+      generated_at: timestamp_now()
+    }
+  end
+
+  defp dry_run_artifact(
+         _dry_run_context,
+         _workspace_policy_check,
+         _secret_scan_policy_check,
+         _diff_size_policy_check,
+         _binary_file_policy_check,
+         _commit_message_contract_check
+       ),
+       do: %{}
 
   defp push_requested?(args, opts) when is_map(args) and is_list(opts) do
     explicit_push_opt_in? =
@@ -2495,12 +2844,8 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
 
     explicit_mode_opt_in? =
       args
-      |> map_get(:shipping_mode, "shipping_mode")
-      |> normalize_optional_string()
-      |> case do
-        nil -> false
-        mode -> String.downcase(mode) in ["ship", "full", "push", "commit_push_pr"]
-      end
+      |> shipping_mode_from_args()
+      |> ship_mode?()
 
     Keyword.has_key?(opts, :push_runner) or explicit_push_opt_in? or explicit_mode_opt_in?
   end
@@ -2963,6 +3308,60 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
       }
     }
   end
+
+  defp dry_run_push_execution(branch_context, dry_run_context)
+       when is_map(branch_context) and is_map(dry_run_context) do
+    branch_name =
+      branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+
+    dry_run_log =
+      %{
+        event: "dry_run_shipping_mode",
+        status: "side_effects_suppressed",
+        branch_name: branch_name,
+        suppressed_actions: @blocked_shipping_actions,
+        timestamp: timestamp_now()
+      }
+      |> maybe_put_optional(
+        :requested_via,
+        map_get(dry_run_context, :requested_via, "requested_via")
+      )
+
+    run_logs = [dry_run_log]
+
+    %{
+      push: %{
+        status: "suppressed_dry_run",
+        attempt_count: 0,
+        retry_attempted: false,
+        branch_name: branch_name,
+        detail: "Dry-run mode suppressed commit, push, and PR side effects.",
+        suppressed_actions: @blocked_shipping_actions,
+        side_effect_safety: %{
+          branch_setup_repeated: false,
+          commit_repeated: false
+        }
+      },
+      push_auth_recovery: %{
+        strategy: @push_auth_retry_strategy,
+        retry_limit: @push_auth_retry_limit,
+        retry_attempted: false,
+        auth_refresh_attempted: false,
+        auth_refresh_status: "suppressed_dry_run"
+      },
+      run_logs: run_logs,
+      shipping_flow: %{
+        completed_stage: "dry_run_report_generation",
+        next_stage: "approval_review",
+        run_logs: run_logs
+      }
+    }
+  end
+
+  defp dry_run_push_execution(branch_context, _dry_run_context) when is_map(branch_context),
+    do: dry_run_push_execution(branch_context, %{})
+
+  defp dry_run_push_execution(_branch_context, _dry_run_context), do: skipped_push_execution(%{})
 
   defp push_auth_retry_error(
          initial_push_failure,
@@ -4937,6 +5336,22 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
     end
   end
 
+  defp normalize_shipping_mode(value) do
+    value
+    |> normalize_optional_string()
+    |> case do
+      nil ->
+        nil
+
+      shipping_mode ->
+        shipping_mode
+        |> String.downcase()
+        |> String.replace(~r/\s+/, "_")
+        |> String.trim()
+        |> normalize_optional_string()
+    end
+  end
+
   defp normalize_workspace_state(value) when is_boolean(value),
     do: normalize_workspace_clean_flag(value)
 
@@ -5011,6 +5426,63 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
       step: "CommitAndPR",
       stage: stage,
       operation: operation
+    }
+  end
+
+  defp dry_run_validation_error(branch_context, shipping_mode, incompatible_entries)
+       when is_map(branch_context) and is_list(incompatible_entries) do
+    %{
+      error_type: @dry_run_validation_error_type,
+      operation: @dry_run_validation_operation,
+      reason_type: "dry_run_policy_incompatible",
+      detail: "Dry-run mode is incompatible with one or more shipping directives that require git side effects.",
+      remediation: @dry_run_validation_remediation,
+      blocked_stage: "commit_changes",
+      blocked_actions: @blocked_shipping_actions,
+      halted_before_commit: true,
+      halted_before_push: true,
+      halted_before_pr: true,
+      branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+      branch_derivation: branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map(),
+      validation_guidance: %{
+        requested_mode: @dry_run_shipping_mode,
+        observed_shipping_mode: shipping_mode || "unspecified",
+        incompatible_entries: incompatible_entries,
+        guidance: [
+          "Disable side-effect directives (`execute_push`, `push_enabled`, and ship/full/push mode values).",
+          "Use dry-run-compatible policy settings (`allow_dry_run: true` and no ship-only policy mode)."
+        ],
+        step_metadata: step_metadata(@dry_run_validation_stage, @dry_run_validation_operation)
+      },
+      timestamp: timestamp_now()
+    }
+  end
+
+  defp dry_run_validation_error(_branch_context, shipping_mode, incompatible_entries) do
+    %{
+      error_type: @dry_run_validation_error_type,
+      operation: @dry_run_validation_operation,
+      reason_type: "dry_run_policy_incompatible",
+      detail: "Dry-run mode is incompatible with one or more shipping directives that require git side effects.",
+      remediation: @dry_run_validation_remediation,
+      blocked_stage: "commit_changes",
+      blocked_actions: @blocked_shipping_actions,
+      halted_before_commit: true,
+      halted_before_push: true,
+      halted_before_pr: true,
+      branch_name: nil,
+      branch_derivation: %{},
+      validation_guidance: %{
+        requested_mode: @dry_run_shipping_mode,
+        observed_shipping_mode: shipping_mode || "unspecified",
+        incompatible_entries: incompatible_entries,
+        guidance: [
+          "Disable side-effect directives (`execute_push`, `push_enabled`, and ship/full/push mode values).",
+          "Use dry-run-compatible policy settings (`allow_dry_run: true` and no ship-only policy mode)."
+        ],
+        step_metadata: step_metadata(@dry_run_validation_stage, @dry_run_validation_operation)
+      },
+      timestamp: timestamp_now()
     }
   end
 

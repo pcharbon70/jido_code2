@@ -952,6 +952,113 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
     assert Agent.get(commit_probe_calls, & &1) == 0
   end
 
+  test "dry-run shipping mode persists review artifacts and suppresses commit push and PR side effects" do
+    commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
+    push_attempt_calls = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+
+    commit_probe = fn _branch_context ->
+      Agent.update(commit_probe_calls, &(&1 + 1))
+    end
+
+    push_runner = fn _args, _branch_context ->
+      Agent.update(push_attempt_calls, &(&1 + 1))
+      {:ok, %{status: "pushed", detail: "should not run in dry-run mode"}}
+    end
+
+    {:ok, result} =
+      CommitAndPR.execute(
+        nil,
+        %{
+          workflow_name: "Implement Task",
+          run_id: "run-dry-run-01",
+          workspace_clean: true,
+          shipping_mode: "dry_run",
+          diff_metrics: %{files_changed: 3, lines_added: 21, lines_deleted: 9}
+        },
+        branch_setup_runner: fn _branch_context -> :ok end,
+        commit_probe: commit_probe,
+        push_runner: push_runner
+      )
+
+    assert result.dry_run.enabled == true
+    assert result.dry_run.mode == "dry_run"
+    assert result.dry_run.status == "completed"
+    assert result.dry_run.suppressed_actions == ["commit", "push", "create_pr"]
+    assert result.run_artifacts.dry_run == result.dry_run
+
+    assert %{
+             total_lines_changed: 30
+           } = result.run_artifacts.dry_run.report.diff_metrics
+
+    assert result.run_artifacts.dry_run.report.policy_checks == %{
+             workspace_cleanliness: "passed",
+             secret_scan: "passed",
+             diff_size_threshold: "passed",
+             binary_file_policy: "passed"
+           }
+
+    assert result.push.status == "suppressed_dry_run"
+    assert result.push.attempt_count == 0
+    assert result.push.retry_attempted == false
+    assert result.shipping_flow.completed_stage == "dry_run_report_generation"
+    assert result.shipping_flow.next_stage == "approval_review"
+
+    assert Enum.any?(result.run_logs, fn run_log ->
+             run_log.event == "dry_run_shipping_mode" and
+               run_log.status == "side_effects_suppressed"
+           end)
+
+    assert Agent.get(commit_probe_calls, & &1) == 0
+    assert Agent.get(push_attempt_calls, & &1) == 0
+  end
+
+  test "dry-run shipping mode rejects incompatible side-effect policy with typed validation guidance" do
+    commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
+    push_attempt_calls = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+
+    commit_probe = fn _branch_context ->
+      Agent.update(commit_probe_calls, &(&1 + 1))
+    end
+
+    push_runner = fn _args, _branch_context ->
+      Agent.update(push_attempt_calls, &(&1 + 1))
+      {:ok, %{status: "pushed", detail: "should not run in dry-run validation failure"}}
+    end
+
+    assert {:error, typed_error} =
+             CommitAndPR.execute(
+               nil,
+               %{
+                 workflow_name: "Implement Task",
+                 run_id: "run-dry-run-invalid-01",
+                 workspace_clean: true,
+                 shipping_mode: "dry_run",
+                 execute_push: true
+               },
+               branch_setup_runner: fn _branch_context -> :ok end,
+               commit_probe: commit_probe,
+               push_runner: push_runner
+             )
+
+    assert typed_error.error_type == "workflow_commit_and_pr_dry_run_validation_failed"
+    assert typed_error.operation == "validate_dry_run_shipping_mode"
+    assert typed_error.reason_type == "dry_run_policy_incompatible"
+    assert typed_error.blocked_stage == "commit_changes"
+    assert typed_error.blocked_actions == ["commit", "push", "create_pr"]
+    assert typed_error.halted_before_commit == true
+    assert typed_error.halted_before_push == true
+    assert typed_error.halted_before_pr == true
+    assert typed_error.validation_guidance.requested_mode == "dry_run"
+    assert typed_error.validation_guidance.observed_shipping_mode == "dry_run"
+
+    assert Enum.any?(typed_error.validation_guidance.incompatible_entries, fn entry ->
+             entry.field == "execute_push"
+           end)
+
+    assert Agent.get(commit_probe_calls, & &1) == 0
+    assert Agent.get(push_attempt_calls, & &1) == 0
+  end
+
   test "push auth failure refreshes GitHub auth and retries once without duplicating commit side effects" do
     commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
     push_attempt_calls = start_supervised!({Agent, fn -> [] end}, id: make_ref())
