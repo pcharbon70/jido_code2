@@ -5,6 +5,7 @@ defmodule JidoCodeWeb.WorkbenchLive do
 
   @fallback_row_id_prefix "workbench-row-"
   @filter_validation_error_type "workbench_filter_values_invalid"
+  @filter_restore_validation_error_type "workbench_filter_restore_state_invalid"
   @sort_validation_error_type "workbench_sort_order_fallback"
 
   @default_filter_values %{
@@ -40,9 +41,12 @@ defmodule JidoCodeWeb.WorkbenchLive do
   @default_work_state_filter_value Map.fetch!(@default_filter_values, "work_state")
   @default_freshness_filter_value Map.fetch!(@default_filter_values, "freshness_window")
   @default_sort_order_value Map.fetch!(@default_filter_values, "sort_order")
+  @filter_state_query_keys ["project_id", "work_state", "freshness_window", "sort_order"]
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    initial_filter_values = initial_filter_values(params)
+
     socket =
       socket
       |> assign(:inventory_count, 0)
@@ -51,14 +55,38 @@ defmodule JidoCodeWeb.WorkbenchLive do
       |> assign(:stale_warning, nil)
       |> assign(:filter_validation_notice, nil)
       |> assign(:sort_validation_notice, nil)
-      |> assign(:filter_values, @default_filter_values)
-      |> assign(:filter_form, to_filter_form(@default_filter_values))
-      |> assign(:filter_chips, filter_chips(@default_filter_values, []))
+      |> assign(:filter_values, initial_filter_values)
+      |> assign(:filter_form, to_filter_form(initial_filter_values))
+      |> assign(:filter_chips, filter_chips(initial_filter_values, []))
       |> assign(:project_filter_options, project_filter_options([]))
       |> stream(:inventory_rows, [], reset: true)
       |> load_inventory()
 
     {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    case restored_filter_values(params, socket.assigns.inventory_rows_all) do
+      {:ok, filter_values} ->
+        socket =
+          socket
+          |> assign(:filter_validation_notice, nil)
+          |> apply_filters(filter_values)
+
+        {:noreply, socket}
+
+      {:error, field, invalid_value} ->
+        socket =
+          socket
+          |> assign(:filter_validation_notice, filter_restore_validation_notice(field, invalid_value))
+          |> apply_filters(@default_filter_values)
+
+        {:noreply, socket}
+
+      :none ->
+        {:noreply, socket}
+    end
   end
 
   @impl true
@@ -68,12 +96,22 @@ defmodule JidoCodeWeb.WorkbenchLive do
 
   @impl true
   def handle_event("apply_filters", %{"filters" => filter_params}, socket) do
-    {:noreply, apply_filter_event(socket, filter_params)}
+    socket =
+      socket
+      |> apply_filter_event(filter_params)
+      |> push_filter_state_patch()
+
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("apply_filters", _params, socket) do
-    {:noreply, apply_invalid_filter_defaults(socket, "filters", "missing")}
+    socket =
+      socket
+      |> apply_invalid_filter_defaults("filters", "missing")
+      |> push_filter_state_patch()
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -263,7 +301,7 @@ defmodule JidoCodeWeb.WorkbenchLive do
                       disabled_id={"workbench-project-issues-project-disabled-#{project.id}"}
                       reason_id={"workbench-project-issues-project-disabled-reason-#{project.id}"}
                       label="Project detail"
-                      target={project_detail_path(project)}
+                      target={project_detail_path(project, @filter_values)}
                       disabled_reason={project_detail_unavailable_reason()}
                     />
                   </div>
@@ -285,7 +323,7 @@ defmodule JidoCodeWeb.WorkbenchLive do
                       disabled_id={"workbench-project-prs-project-disabled-#{project.id}"}
                       reason_id={"workbench-project-prs-project-disabled-reason-#{project.id}"}
                       label="Project detail"
-                      target={project_detail_path(project)}
+                      target={project_detail_path(project, @filter_values)}
                       disabled_reason={project_detail_unavailable_reason()}
                     />
                   </div>
@@ -353,6 +391,15 @@ defmodule JidoCodeWeb.WorkbenchLive do
     socket
     |> assign(:filter_validation_notice, filter_validation_notice(field, invalid_value))
     |> apply_filters(@default_filter_values)
+  end
+
+  defp push_filter_state_patch(socket) do
+    filter_values =
+      socket.assigns
+      |> Map.get(:filter_values, @default_filter_values)
+      |> normalize_filter_values()
+
+    push_patch(socket, to: workbench_path_with_filter_values(filter_values))
   end
 
   defp apply_filters(socket, filter_values) do
@@ -467,6 +514,48 @@ defmodule JidoCodeWeb.WorkbenchLive do
 
   defp normalize_filter_values(_filter_values), do: @default_filter_values
 
+  defp initial_filter_values(params) do
+    restored_values = extract_filter_state_params(params || %{})
+
+    if map_size(restored_values) == 0 do
+      @default_filter_values
+    else
+      @default_filter_values
+      |> Map.merge(restored_values)
+      |> normalize_filter_values()
+    end
+  end
+
+  defp restored_filter_values(params, rows) do
+    restored_values = extract_filter_state_params(params)
+
+    if map_size(restored_values) == 0 do
+      :none
+    else
+      filter_values =
+        @default_filter_values
+        |> Map.merge(restored_values)
+        |> normalize_filter_values()
+
+      case validate_filter_values(filter_values, rows) do
+        :ok ->
+          {:ok, filter_values}
+
+        {:error, field, invalid_value} ->
+          {:error, field, invalid_value}
+      end
+    end
+  end
+
+  defp extract_filter_state_params(params) do
+    Enum.reduce(@filter_state_query_keys, %{}, fn key, acc ->
+      case Map.get(params, key) do
+        nil -> acc
+        value -> Map.put(acc, key, value)
+      end
+    end)
+  end
+
   defp validated_filter_values_or_default(filter_values, rows) do
     case validate_filter_values(filter_values, rows) do
       :ok -> filter_values
@@ -531,6 +620,36 @@ defmodule JidoCodeWeb.WorkbenchLive do
       detail: "Invalid #{field} value #{invalid_value} was submitted for workbench filters; defaults were restored.",
       remediation: "Select values from the listed project, state, and freshness options and retry."
     }
+  end
+
+  defp filter_restore_validation_notice(field, invalid_value) do
+    %{
+      error_type: @filter_restore_validation_error_type,
+      detail:
+        "Workbench state restoration failed because #{field} value #{invalid_value} is invalid; defaults were restored.",
+      remediation: "Use workbench filters to reselect project, state, freshness, and sort preferences."
+    }
+  end
+
+  defp workbench_path_with_filter_values(filter_values) do
+    query_params =
+      @filter_state_query_keys
+      |> Enum.reduce([], fn key, acc ->
+        value = Map.get(filter_values, key, Map.fetch!(@default_filter_values, key))
+        default_value = Map.fetch!(@default_filter_values, key)
+
+        if value == default_value do
+          acc
+        else
+          [{key, value} | acc]
+        end
+      end)
+      |> Enum.reverse()
+
+    case query_params do
+      [] -> "/workbench"
+      _other -> "/workbench?" <> URI.encode_query(query_params)
+    end
   end
 
   defp filter_chips(filter_values, rows) do
@@ -857,7 +976,7 @@ defmodule JidoCodeWeb.WorkbenchLive do
     end
   end
 
-  defp project_detail_path(project) do
+  defp project_detail_path(project, filter_values) do
     project
     |> Map.get(:id)
     |> normalize_optional_string()
@@ -869,7 +988,14 @@ defmodule JidoCodeWeb.WorkbenchLive do
         nil
 
       project_id ->
-        "/projects/#{URI.encode(project_id)}"
+        base_path = "/projects/#{URI.encode(project_id)}"
+        return_to = workbench_path_with_filter_values(normalize_filter_values(filter_values))
+
+        if return_to == "/workbench" do
+          base_path
+        else
+          "#{base_path}?return_to=#{URI.encode_www_form(return_to)}"
+        end
     end
   end
 

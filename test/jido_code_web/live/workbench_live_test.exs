@@ -637,6 +637,139 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
     assert has_element?(view, "#workbench-filter-sort-order option[value='project_name_asc'][selected]")
   end
 
+  test "preserves filter and sort state across navigation context and restores from workbench URL",
+       %{conn: _conn} do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    now = DateTime.utc_now()
+
+    Application.put_env(:jido_code, :workbench_inventory_loader, fn ->
+      {:ok,
+       [
+         %{
+           id: "owner-repo-alpha",
+           name: "repo-alpha",
+           github_full_name: "owner/repo-alpha",
+           open_issue_count: 2,
+           open_pr_count: 0,
+           recent_activity_summary: "Alpha summary",
+           recent_activity_at: DateTime.add(now, -10 * 24 * 60 * 60, :second) |> DateTime.to_iso8601()
+         },
+         %{
+           id: "owner-repo-beta",
+           name: "repo-beta",
+           github_full_name: "owner/repo-beta",
+           open_issue_count: 0,
+           open_pr_count: 3,
+           recent_activity_summary: "Beta summary",
+           recent_activity_at: DateTime.add(now, -3 * 60 * 60, :second) |> DateTime.to_iso8601()
+         }
+       ], nil}
+    end)
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/workbench", on_error: :warn)
+
+    apply_workbench_filters(view, %{
+      "project_id" => "owner-repo-beta",
+      "work_state" => "prs_open",
+      "freshness_window" => "active_24h",
+      "sort_order" => "recent_activity_desc"
+    })
+
+    workbench_state_path =
+      "/workbench?project_id=owner-repo-beta&work_state=prs_open&freshness_window=active_24h&sort_order=recent_activity_desc"
+
+    assert_patch(view, workbench_state_path)
+    assert has_element?(view, "#workbench-project-name-owner-repo-beta")
+    refute has_element?(view, "#workbench-project-name-owner-repo-alpha")
+
+    encoded_return_to = URI.encode_www_form(workbench_state_path)
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-project-link-owner-repo-beta[href='/projects/owner-repo-beta?return_to=#{encoded_return_to}']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-project-link-owner-repo-beta[href='/projects/owner-repo-beta?return_to=#{encoded_return_to}']"
+           )
+
+    {:ok, restored_view, _html} = live(recycle(authed_conn), workbench_state_path, on_error: :warn)
+
+    assert has_element?(restored_view, "#workbench-project-name-owner-repo-beta")
+    refute has_element?(restored_view, "#workbench-project-name-owner-repo-alpha")
+    assert has_element?(restored_view, "#workbench-filter-chip-project", "owner/repo-beta")
+    assert has_element?(restored_view, "#workbench-filter-chip-work-state", "PRs open")
+    assert has_element?(restored_view, "#workbench-filter-chip-freshness-window", "Active in last 24 hours")
+    assert has_element?(restored_view, "#workbench-filter-chip-sort-order", "Recent activity (most recent first)")
+    assert has_element?(restored_view, "#workbench-filter-project option[value='owner-repo-beta'][selected]")
+    assert has_element?(restored_view, "#workbench-filter-work-state option[value='prs_open'][selected]")
+    assert has_element?(restored_view, "#workbench-filter-freshness-window option[value='active_24h'][selected]")
+    assert has_element?(restored_view, "#workbench-filter-sort-order option[value='recent_activity_desc'][selected]")
+  end
+
+  test "invalid restored workbench state falls back to defaults with a reset reason notice", %{
+    conn: _conn
+  } do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    Application.put_env(:jido_code, :workbench_inventory_loader, fn ->
+      {:ok,
+       [
+         %{
+           id: "owner-repo-one",
+           name: "repo-one",
+           github_full_name: "owner/repo-one",
+           open_issue_count: 1,
+           open_pr_count: 0,
+           recent_activity_summary: "Repo one summary"
+         },
+         %{
+           id: "owner-repo-two",
+           name: "repo-two",
+           github_full_name: "owner/repo-two",
+           open_issue_count: 0,
+           open_pr_count: 2,
+           recent_activity_summary: "Repo two summary"
+         }
+       ], nil}
+    end)
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        "/workbench?project_id=owner-repo-missing&sort_order=backlog_desc",
+        on_error: :warn
+      )
+
+    assert has_element?(view, "#workbench-filter-validation-notice")
+
+    assert has_element?(
+             view,
+             "#workbench-filter-validation-type",
+             "workbench_filter_restore_state_invalid"
+           )
+
+    assert has_element?(view, "#workbench-filter-validation-detail", "project_id")
+    assert has_element?(view, "#workbench-filter-chip-project", "All projects")
+    assert has_element?(view, "#workbench-filter-chip-work-state", "Any issue or PR state")
+    assert has_element?(view, "#workbench-filter-chip-freshness-window", "Any freshness")
+    assert has_element?(view, "#workbench-filter-chip-sort-order", "Project name (A-Z)")
+    assert has_element?(view, "#workbench-filter-project option[value='all'][selected]")
+    assert has_element?(view, "#workbench-filter-work-state option[value='all'][selected]")
+    assert has_element?(view, "#workbench-filter-freshness-window option[value='any'][selected]")
+    assert has_element?(view, "#workbench-filter-sort-order option[value='project_name_asc'][selected]")
+    assert has_element?(view, "#workbench-project-name-owner-repo-one", "owner/repo-one")
+    assert has_element?(view, "#workbench-project-name-owner-repo-two", "owner/repo-two")
+  end
+
   defp register_owner(email, password) do
     strategy = Info.strategy!(User, :password)
 
