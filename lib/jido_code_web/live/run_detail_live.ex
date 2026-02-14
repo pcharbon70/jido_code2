@@ -46,6 +46,34 @@ defmodule JidoCodeWeb.RunDetailLive do
   def handle_event("approve_run", _params, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("reject_run", params, %{assigns: %{run: %WorkflowRun{} = run}} = socket) do
+    rationale =
+      params
+      |> map_get(:rationale, "rationale")
+      |> normalize_optional_string()
+
+    case WorkflowRun.reject(run, %{
+           actor: approving_actor(socket),
+           rationale: rationale
+         }) do
+      {:ok, %WorkflowRun{} = rejected_run} ->
+        {:noreply,
+         socket
+         |> assign_run(rejected_run)
+         |> assign(:approval_action_error, nil)}
+
+      {:error, typed_failure} ->
+        {:noreply,
+         socket
+         |> refresh_run_assigns()
+         |> assign(:approval_action_error, normalize_approval_action_failure(typed_failure))}
+    end
+  end
+
+  @impl true
+  def handle_event("reject_run", _params, socket), do: {:noreply, socket}
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={%{}}>
@@ -114,7 +142,7 @@ defmodule JidoCodeWeb.RunDetailLive do
                 </section>
               <% end %>
 
-              <div id="run-detail-approval-actions" class="flex gap-2">
+              <div id="run-detail-approval-actions" class="space-y-3">
                 <button
                   id="run-detail-approve-button"
                   type="button"
@@ -123,9 +151,19 @@ defmodule JidoCodeWeb.RunDetailLive do
                 >
                   Approve
                 </button>
-                <button id="run-detail-reject-button" type="button" class="btn btn-outline" disabled>
-                  Reject
-                </button>
+
+                <form id="run-detail-reject-form" phx-submit="reject_run" class="space-y-2">
+                  <.input
+                    id="run-detail-reject-rationale"
+                    type="textarea"
+                    name="rationale"
+                    label="Rejection rationale (optional)"
+                    value=""
+                  />
+                  <button id="run-detail-reject-button" type="submit" class="btn btn-outline">
+                    Reject
+                  </button>
+                </form>
               </div>
 
               <%= if @approval_action_error do %>
@@ -366,16 +404,16 @@ defmodule JidoCodeWeb.RunDetailLive do
 
     %{
       error_type: error_type || "workflow_run_approval_action_failed",
-      detail: detail || "Approve action failed and run remains blocked.",
-      remediation: remediation || "Review run state and retry approval."
+      detail: detail || "Approval action failed and run remains blocked.",
+      remediation: remediation || "Review run state and retry from run detail."
     }
   end
 
   defp normalize_approval_action_failure(_typed_failure) do
     %{
       error_type: "workflow_run_approval_action_failed",
-      detail: "Approve action failed and run remains blocked.",
-      remediation: "Review run state and retry approval."
+      detail: "Approval action failed and run remains blocked.",
+      remediation: "Review run state and retry from run detail."
     }
   end
 
@@ -411,6 +449,13 @@ defmodule JidoCodeWeb.RunDetailLive do
   defp format_transitioned_at(_transitioned_at), do: "unknown"
 
   defp normalize_timeline_approval_audit(entry) when is_map(entry) do
+    decision =
+      entry
+      |> map_get(:metadata, "metadata", %{})
+      |> map_get(:approval_decision, "approval_decision", %{})
+      |> map_get(:decision, "decision")
+      |> normalize_optional_string()
+
     actor =
       entry
       |> map_get(:metadata, "metadata", %{})
@@ -427,13 +472,27 @@ defmodule JidoCodeWeb.RunDetailLive do
       |> map_get(:timestamp, "timestamp")
       |> normalize_optional_string()
 
+    rationale =
+      entry
+      |> map_get(:metadata, "metadata", %{})
+      |> map_get(:approval_decision, "approval_decision", %{})
+      |> map_get(:rationale, "rationale")
+      |> normalize_optional_string()
+
     actor_label = actor_email || actor_id
 
-    case {actor_label, timestamp} do
-      {nil, nil} -> nil
-      {label, nil} -> "actor=#{label}"
-      {nil, at} -> "at=#{format_transitioned_at(at)}"
-      {label, at} -> "actor=#{label} at=#{format_transitioned_at(at)}"
+    parts =
+      [
+        if(decision, do: "decision=#{decision}"),
+        if(actor_label, do: "actor=#{actor_label}"),
+        if(timestamp, do: "at=#{format_transitioned_at(timestamp)}"),
+        if(rationale, do: "rationale=#{rationale}")
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    case parts do
+      [] -> nil
+      audit_parts -> Enum.join(audit_parts, " ")
     end
   end
 

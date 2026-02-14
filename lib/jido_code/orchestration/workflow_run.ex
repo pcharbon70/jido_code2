@@ -11,7 +11,9 @@ defmodule JidoCode.Orchestration.WorkflowRun do
   @terminal_statuses [:completed, :failed, :cancelled]
   @approval_action_error_type "workflow_run_approval_action_failed"
   @approval_action_operation "approve_run"
+  @rejection_action_operation "reject_run"
   @approval_resume_step "resume_execution"
+  @rejection_policy_default "cancel"
   @allowed_transitions %{
     pending: MapSet.new([:running, :cancelled]),
     running: MapSet.new([:awaiting_approval, :completed, :failed, :cancelled]),
@@ -290,6 +292,53 @@ defmodule JidoCode.Orchestration.WorkflowRun do
      )}
   end
 
+  @spec reject(t(), map() | nil) :: {:ok, t()} | {:error, map()}
+  def reject(run, params \\ nil)
+
+  def reject(run, params) when is_struct(run, __MODULE__) do
+    params = if(is_map(params), do: params, else: %{})
+    persisted_run = reload_run(run)
+    rejected_at = params |> map_get(:rejected_at, "rejected_at") |> normalize_datetime()
+    actor = params |> map_get(:actor, "actor", %{}) |> normalize_actor()
+    rationale = params |> map_get(:rationale, "rationale") |> normalize_optional_string()
+
+    with :ok <- validate_rejection_preconditions(persisted_run),
+         {:ok, transition_target} <- rejection_transition_target(persisted_run),
+         transition_metadata <- %{
+           "approval_decision" => rejection_decision(actor, rejected_at, rationale, transition_target)
+         },
+         {:ok, rejected_run} <-
+           transition_status(persisted_run, %{
+             to_status: transition_target.to_status,
+             current_step: transition_target.current_step,
+             transitioned_at: rejected_at,
+             transition_metadata: transition_metadata
+           }) do
+      {:ok, rejected_run}
+    else
+      {:error, typed_failure} when is_map(typed_failure) ->
+        {:error, typed_failure}
+
+      {:error, reason} ->
+        {:error,
+         rejection_action_failure(
+           "status_transition_failed",
+           "Reject action could not be applied while run remained blocked.",
+           "Retry rejection from run detail after resolving the blocking condition.",
+           reason
+         )}
+    end
+  end
+
+  def reject(_run, _params) do
+    {:error,
+     rejection_action_failure(
+       "invalid_run",
+       "Run reference is invalid and cannot be rejected.",
+       "Reload run detail and retry rejection."
+     )}
+  end
+
   defp apply_transition(changeset, from_status, to_status) do
     transitioned_at =
       changeset
@@ -324,7 +373,7 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     |> maybe_capture_transition_audit(from_status, to_status, transition_metadata)
     |> maybe_set_started_at(to_status, transitioned_at)
     |> maybe_set_completed_at(to_status, transitioned_at)
-    |> publish_transition_events(from_status, to_status, current_step, transitioned_at)
+    |> publish_transition_events(from_status, to_status, current_step, transitioned_at, transition_metadata)
   end
 
   defp maybe_set_started_at(changeset, :running, transitioned_at) do
@@ -363,9 +412,16 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     end)
   end
 
-  defp publish_transition_events(changeset, from_status, to_status, current_step, transitioned_at) do
+  defp publish_transition_events(
+         changeset,
+         from_status,
+         to_status,
+         current_step,
+         transitioned_at,
+         transition_metadata
+       ) do
     correlation_id = Ecto.UUID.generate()
-    events = required_transition_events(from_status, to_status)
+    events = required_transition_events(from_status, to_status, transition_metadata)
 
     publish_required_events(changeset, events, fn event_name ->
       build_event_payload(
@@ -401,17 +457,26 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     end
   end
 
-  defp required_transition_events(from_status, to_status) do
-    case {from_status, to_status} do
-      {:awaiting_approval, :running} -> ["approval_granted", "step_started"]
-      {_from, :running} -> ["step_started"]
-      {_from, :awaiting_approval} -> ["approval_requested"]
-      {:awaiting_approval, :cancelled} -> ["approval_rejected", "run_cancelled"]
-      {_from, :completed} -> ["step_completed", "run_completed"]
-      {_from, :failed} -> ["step_failed", "run_failed"]
-      {_from, :cancelled} -> ["run_cancelled"]
+  defp required_transition_events(from_status, to_status, transition_metadata) do
+    case {from_status, to_status, transition_approval_decision(transition_metadata)} do
+      {:awaiting_approval, :running, "rejected"} -> ["approval_rejected", "step_started"]
+      {:awaiting_approval, :running, _decision} -> ["approval_granted", "step_started"]
+      {_from, :running, _decision} -> ["step_started"]
+      {_from, :awaiting_approval, _decision} -> ["approval_requested"]
+      {:awaiting_approval, :cancelled, _decision} -> ["approval_rejected", "run_cancelled"]
+      {_from, :completed, _decision} -> ["step_completed", "run_completed"]
+      {_from, :failed, _decision} -> ["step_failed", "run_failed"]
+      {_from, :cancelled, _decision} -> ["run_cancelled"]
       _other -> []
     end
+  end
+
+  defp transition_approval_decision(transition_metadata) do
+    transition_metadata
+    |> normalize_map()
+    |> map_get(:approval_decision, "approval_decision", %{})
+    |> map_get(:decision, "decision")
+    |> normalize_optional_string()
   end
 
   defp build_event_payload(
@@ -481,9 +546,10 @@ defmodule JidoCode.Orchestration.WorkflowRun do
   defp maybe_capture_transition_audit(
          changeset,
          :awaiting_approval,
-         :running,
+         to_status,
          %{"approval_decision" => approval_decision}
-       ) do
+       )
+       when to_status in [:running, :cancelled] do
     normalized_approval_decision = normalize_map(approval_decision)
 
     if map_size(normalized_approval_decision) == 0 do
@@ -798,6 +864,28 @@ defmodule JidoCode.Orchestration.WorkflowRun do
      )}
   end
 
+  defp validate_rejection_preconditions(run) when is_struct(run, __MODULE__) do
+    if awaiting_approval_status?(Map.get(run, :status)) do
+      :ok
+    else
+      {:error,
+       rejection_action_failure(
+         "invalid_run_status",
+         "Reject action is only allowed when run status is awaiting_approval.",
+         "Reload run detail and retry once run enters awaiting_approval."
+       )}
+    end
+  end
+
+  defp validate_rejection_preconditions(_run) do
+    {:error,
+     rejection_action_failure(
+       "invalid_run",
+       "Run reference is invalid and cannot be rejected.",
+       "Reload run detail and retry rejection."
+     )}
+  end
+
   defp awaiting_approval_status?(status) when is_atom(status), do: status == :awaiting_approval
   defp awaiting_approval_status?(status) when is_binary(status), do: String.trim(status) == "awaiting_approval"
   defp awaiting_approval_status?(_status), do: false
@@ -831,12 +919,176 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     |> normalize_current_step(@approval_resume_step)
   end
 
+  defp rejection_transition_target(run) do
+    current_step =
+      run
+      |> Map.get(:current_step)
+      |> normalize_current_step()
+
+    case rejection_policy(run) do
+      {:ok, :cancel} ->
+        {:ok, %{to_status: :cancelled, current_step: current_step, outcome: "cancelled"}}
+
+      {:ok, {:retry_route, retry_step}} ->
+        {:ok, %{to_status: :running, current_step: retry_step, outcome: "retry_route"}}
+
+      {:error, typed_failure} ->
+        {:error, typed_failure}
+    end
+  end
+
+  defp rejection_policy(run) when is_struct(run, __MODULE__) do
+    on_reject =
+      run
+      |> Map.get(:trigger, %{})
+      |> normalize_map()
+      |> trigger_approval_policy()
+      |> map_get(:on_reject, "on_reject", @rejection_policy_default)
+
+    normalize_rejection_policy(on_reject)
+  end
+
+  defp rejection_policy(_run), do: {:ok, :cancel}
+
+  defp trigger_approval_policy(trigger) when is_map(trigger) do
+    case map_get(trigger, :approval_policy, "approval_policy") do
+      %{} = direct_policy ->
+        normalize_map(direct_policy)
+
+      _other ->
+        nested_policy =
+          trigger
+          |> map_get(:policy, "policy", %{})
+          |> normalize_map()
+
+        cond do
+          is_map(map_get(nested_policy, :approval_policy, "approval_policy")) ->
+            nested_policy
+            |> map_get(:approval_policy, "approval_policy")
+            |> normalize_map()
+
+          is_map(map_get(nested_policy, :approval, "approval")) ->
+            nested_policy
+            |> map_get(:approval, "approval")
+            |> normalize_map()
+
+          true ->
+            nested_policy
+        end
+    end
+  end
+
+  defp trigger_approval_policy(_trigger), do: %{}
+
+  defp normalize_rejection_policy(on_reject) when is_map(on_reject) do
+    case normalize_rejection_policy_action(map_get(on_reject, :action, "action")) do
+      :cancel ->
+        {:ok, :cancel}
+
+      :retry_route ->
+        case rejection_retry_step(on_reject) do
+          nil ->
+            {:error,
+             rejection_action_failure(
+               "policy_invalid",
+               "Reject action policy configured a retry route but no retry step was provided.",
+               "Update workflow rejection policy with a retry route step, then retry rejection."
+             )}
+
+          retry_step ->
+            {:ok, {:retry_route, retry_step}}
+        end
+
+      :invalid ->
+        {:error,
+         rejection_action_failure(
+           "policy_invalid",
+           "Reject action policy is invalid and cannot determine a rejection route.",
+           "Review workflow rejection policy settings, then retry rejection."
+         )}
+    end
+  end
+
+  defp normalize_rejection_policy(on_reject) do
+    case normalize_rejection_policy_action(on_reject) do
+      :cancel ->
+        {:ok, :cancel}
+
+      :retry_route ->
+        {:error,
+         rejection_action_failure(
+           "policy_invalid",
+           "Reject action policy selected retry routing but did not declare a retry step.",
+           "Update workflow rejection policy with a retry route step, then retry rejection."
+         )}
+
+      :invalid ->
+        {:error,
+         rejection_action_failure(
+           "policy_invalid",
+           "Reject action policy is invalid and cannot determine a rejection route.",
+           "Review workflow rejection policy settings, then retry rejection."
+         )}
+    end
+  end
+
+  defp normalize_rejection_policy_action(action) do
+    case action |> normalize_optional_string() do
+      nil -> :cancel
+      "cancel" -> :cancel
+      "retry_route" -> :retry_route
+      "route_retry" -> :retry_route
+      "route_to_retry" -> :retry_route
+      "reroute" -> :retry_route
+      "retry" -> :retry_route
+      _other -> :invalid
+    end
+  end
+
+  defp rejection_retry_step(on_reject) when is_map(on_reject) do
+    on_reject
+    |> map_get(
+      :retry_step,
+      "retry_step",
+      map_get(
+        on_reject,
+        :route_step,
+        "route_step",
+        map_get(on_reject, :step, "step")
+      )
+    )
+    |> normalize_optional_string()
+    |> case do
+      nil -> nil
+      retry_step -> normalize_current_step(retry_step)
+    end
+  end
+
+  defp rejection_retry_step(_on_reject), do: nil
+
   defp approval_decision(actor, approved_at) do
     %{
       "decision" => "approved",
       "actor" => actor,
       "timestamp" => DateTime.to_iso8601(approved_at)
     }
+  end
+
+  defp rejection_decision(actor, rejected_at, rationale, transition_target) do
+    %{
+      "decision" => "rejected",
+      "actor" => actor,
+      "timestamp" => DateTime.to_iso8601(rejected_at),
+      "outcome" => Map.get(transition_target, :outcome)
+    }
+    |> maybe_put_optional_string("rationale", rationale)
+    |> maybe_put_optional_string(
+      "retry_step",
+      if(Map.get(transition_target, :to_status) == :running,
+        do: Map.get(transition_target, :current_step),
+        else: nil
+      )
+    )
   end
 
   defp normalize_actor(actor) when is_map(actor) do
@@ -849,9 +1101,17 @@ defmodule JidoCode.Orchestration.WorkflowRun do
   defp normalize_actor(_actor), do: %{"id" => "unknown", "email" => nil}
 
   defp approval_action_failure(reason_type, detail, remediation, reason \\ nil) do
+    action_failure(@approval_action_operation, reason_type, detail, remediation, reason)
+  end
+
+  defp rejection_action_failure(reason_type, detail, remediation, reason \\ nil) do
+    action_failure(@rejection_action_operation, reason_type, detail, remediation, reason)
+  end
+
+  defp action_failure(operation, reason_type, detail, remediation, reason) do
     %{
       error_type: @approval_action_error_type,
-      operation: @approval_action_operation,
+      operation: operation,
       reason_type: normalize_reason_type(reason_type),
       detail: format_failure_detail(detail, reason),
       remediation: remediation,
@@ -905,6 +1165,12 @@ defmodule JidoCode.Orchestration.WorkflowRun do
   defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_optional_string(value) when is_float(value), do: :erlang.float_to_binary(value)
   defp normalize_optional_string(_value), do: nil
+
+  defp maybe_put_optional_string(map, _key, nil), do: map
+
+  defp maybe_put_optional_string(map, key, value) do
+    Map.put(map, key, value)
+  end
 
   defp map_get(map, atom_key, string_key, default \\ nil)
 

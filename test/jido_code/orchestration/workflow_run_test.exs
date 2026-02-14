@@ -345,6 +345,229 @@ defmodule JidoCode.Orchestration.WorkflowRunTest do
     assert persisted_run.current_step == "approval_gate"
   end
 
+  test "reject cancels awaiting run by default and persists rejection metadata" do
+    {:ok, project} = create_project("owner/repo-reject-cancel")
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: "run-reject-cancel-#{System.unique_integer([:positive])}",
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Reject and cancel run"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 03:30:00Z],
+        step_results: %{
+          "diff_summary" => "4 files changed (+36/-6).",
+          "test_summary" => "mix test: 92 passed, 0 failed.",
+          "risk_notes" => ["Touches approval rejection path."]
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-15 03:31:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :awaiting_approval,
+        current_step: "approval_gate",
+        transitioned_at: ~U[2026-02-15 03:32:00Z]
+      })
+
+    rejected_at = ~U[2026-02-15 03:33:00Z]
+
+    {:ok, rejected_run} =
+      WorkflowRun.reject(run, %{
+        actor: %{id: "maintainer-2", email: "maintainer@example.com"},
+        rationale: "Change does not meet release criteria.",
+        rejected_at: rejected_at
+      })
+
+    assert rejected_run.status == :cancelled
+    assert rejected_run.current_step == "approval_gate"
+
+    assert DateTime.compare(DateTime.truncate(rejected_run.completed_at, :second), rejected_at) ==
+             :eq
+
+    assert %{
+             "decision" => "rejected",
+             "actor" => %{"id" => "maintainer-2", "email" => "maintainer@example.com"},
+             "timestamp" => "2026-02-15T03:33:00Z",
+             "rationale" => "Change does not meet release criteria.",
+             "outcome" => "cancelled"
+           } = get_in(rejected_run.step_results, ["approval_decision"])
+
+    assert [
+             %{
+               "from_status" => "awaiting_approval",
+               "to_status" => "cancelled",
+               "current_step" => "approval_gate",
+               "transitioned_at" => "2026-02-15T03:33:00Z",
+               "metadata" => %{
+                 "approval_decision" => %{
+                   "decision" => "rejected",
+                   "actor" => %{"id" => "maintainer-2", "email" => "maintainer@example.com"},
+                   "timestamp" => "2026-02-15T03:33:00Z",
+                   "rationale" => "Change does not meet release criteria.",
+                   "outcome" => "cancelled"
+                 }
+               }
+             }
+           ] = rejected_run.status_transitions |> Enum.take(-1)
+  end
+
+  test "reject routes awaiting run to configured retry step according to policy" do
+    {:ok, project} = create_project("owner/repo-reject-reroute")
+    reroute_run_id = "run-reject-reroute-#{System.unique_integer([:positive])}"
+    assert :ok = RunPubSub.subscribe_run(reroute_run_id)
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: reroute_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{
+          source: "workflows",
+          mode: "manual",
+          approval_policy: %{
+            on_reject: %{
+              action: "retry_route",
+              retry_step: "revise_plan"
+            }
+          }
+        },
+        inputs: %{"task_summary" => "Reject and reroute run"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 03:40:00Z],
+        step_results: %{
+          "diff_summary" => "2 files changed (+10/-2).",
+          "test_summary" => "mix test: 36 passed, 0 failed.",
+          "risk_notes" => ["Requires another implementation pass."]
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-15 03:41:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :awaiting_approval,
+        current_step: "approval_gate",
+        transitioned_at: ~U[2026-02-15 03:42:00Z]
+      })
+
+    {:ok, rerouted_run} =
+      WorkflowRun.reject(run, %{
+        actor: %{id: "maintainer-3", email: "maintainer-3@example.com"},
+        rejected_at: ~U[2026-02-15 03:43:00Z]
+      })
+
+    assert rerouted_run.status == :running
+    assert rerouted_run.current_step == "revise_plan"
+    assert rerouted_run.completed_at == nil
+
+    assert %{
+             "decision" => "rejected",
+             "actor" => %{"id" => "maintainer-3", "email" => "maintainer-3@example.com"},
+             "timestamp" => "2026-02-15T03:43:00Z",
+             "outcome" => "retry_route",
+             "retry_step" => "revise_plan"
+           } = get_in(rerouted_run.step_results, ["approval_decision"])
+
+    assert_run_event_sequence(reroute_run_id, [
+      "run_started",
+      "step_started",
+      "approval_requested",
+      "approval_rejected",
+      "step_started"
+    ])
+  end
+
+  test "reject returns typed failure and leaves run unchanged when rejection policy is invalid" do
+    {:ok, project} = create_project("owner/repo-reject-policy-invalid")
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: "run-reject-policy-invalid-#{System.unique_integer([:positive])}",
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{
+          source: "workflows",
+          mode: "manual",
+          approval_policy: %{
+            on_reject: %{
+              action: "retry_route",
+              retry_step: " "
+            }
+          }
+        },
+        inputs: %{"task_summary" => "Reject with invalid policy"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 03:50:00Z],
+        step_results: %{
+          "diff_summary" => "1 file changed (+3/-1).",
+          "test_summary" => "mix test: 8 passed, 0 failed.",
+          "risk_notes" => ["Policy regression risk."]
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-15 03:51:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :awaiting_approval,
+        current_step: "approval_gate",
+        transitioned_at: ~U[2026-02-15 03:52:00Z]
+      })
+
+    transition_count = length(run.status_transitions)
+
+    assert {:error, typed_failure} =
+             WorkflowRun.reject(run, %{
+               actor: %{id: "maintainer-4", email: "maintainer-4@example.com"},
+               rationale: "Policy route is misconfigured."
+             })
+
+    assert typed_failure.error_type == "workflow_run_approval_action_failed"
+    assert typed_failure.operation == "reject_run"
+    assert typed_failure.reason_type == "policy_invalid"
+    assert typed_failure.detail =~ "retry route"
+    assert typed_failure.remediation =~ "retry rejection"
+    assert {:ok, _timestamp, 0} = DateTime.from_iso8601(typed_failure.timestamp)
+
+    {:ok, persisted_run} =
+      WorkflowRun.get_by_project_and_run_id(%{
+        project_id: project.id,
+        run_id: run.run_id
+      })
+
+    assert persisted_run.status == :awaiting_approval
+    assert persisted_run.current_step == "approval_gate"
+    assert length(persisted_run.status_transitions) == transition_count
+  end
+
   test "publishes required run topic events with run metadata across step approval and terminal transitions" do
     {:ok, project} = create_project("owner/repo-run-events")
 
