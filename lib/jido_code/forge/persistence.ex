@@ -21,6 +21,7 @@ defmodule JidoCode.Forge.Persistence do
 
   require Logger
 
+  alias JidoCode.Forge.ChannelRedaction
   alias JidoCode.Forge.EventLogger
   alias JidoCode.Forge.Resources.{Session, ExecSession}
 
@@ -129,14 +130,15 @@ defmodule JidoCode.Forge.Persistence do
   @spec record_execution_complete(String.t(), map()) :: {:ok, Session.t()} | {:error, term()} | :noop
   def record_execution_complete(session_id, result) do
     if enabled?() do
-      with {:ok, session} <- find_session(session_id) do
-        result_status = map_result_status(result)
+      with {:ok, redacted_result} <- redact_artifact_payload(result, session_id, :record_execution_complete),
+           {:ok, session} <- find_session(session_id) do
+        result_status = map_result_status(redacted_result)
 
         session
         |> Ash.Changeset.for_update(:execution_complete, %{
           result_status: result_status,
-          runner_state: result[:runner_state],
-          output_buffer: truncate_output(result[:output])
+          runner_state: redacted_result[:runner_state],
+          output_buffer: truncate_output(redacted_result[:output])
         })
         |> Ash.update()
         |> tap_log("session.execution_complete", session_id, %{status: result_status})
@@ -169,9 +171,8 @@ defmodule JidoCode.Forge.Persistence do
   @spec record_failure(String.t(), term()) :: {:ok, Session.t()} | {:error, term()} | :noop
   def record_failure(session_id, reason) do
     if enabled?() do
-      error_details = normalize_error(reason)
-
-      with {:ok, session} <- find_session(session_id) do
+      with {:ok, error_details} <- reason |> normalize_error() |> redact_artifact_payload(session_id, :record_failure),
+           {:ok, session} <- find_session(session_id) do
         session
         |> Ash.Changeset.for_update(:mark_failed, %{last_error: error_details})
         |> Ash.update()
@@ -233,6 +234,20 @@ defmodule JidoCode.Forge.Persistence do
   defp normalize_error(reason) when is_atom(reason), do: %{type: reason}
   defp normalize_error({type, details}), do: %{type: type, details: inspect(details)}
   defp normalize_error(reason), do: %{raw: inspect(reason)}
+
+  defp redact_artifact_payload(payload, session_id, operation) do
+    case ChannelRedaction.redact_artifact_payload(payload, operation: operation) do
+      {:ok, redacted_payload} ->
+        {:ok, redacted_payload}
+
+      {:error, typed_error} = error ->
+        Logger.error(
+          "security_audit=forge_artifact_redaction_failed severity=high session_id=#{session_id} action=persistence_blocked operation=#{operation} error_type=#{typed_error.error_type} reason_type=#{typed_error.reason_type}"
+        )
+
+        error
+    end
+  end
 
   defp tap_log(result, event_type, session_id, data \\ %{})
 

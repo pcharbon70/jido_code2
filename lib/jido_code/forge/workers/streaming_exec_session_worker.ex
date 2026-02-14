@@ -10,6 +10,7 @@ defmodule JidoCode.Forge.Workers.StreamingExecSessionWorker do
 
   require Logger
 
+  alias JidoCode.Forge.ChannelRedaction
   alias JidoCode.Forge.EventLogger
   alias JidoCode.Forge.PubSub, as: ForgePubSub
   alias JidoCode.Forge.Resources.ExecSession
@@ -181,15 +182,17 @@ defmodule JidoCode.Forge.Workers.StreamingExecSessionWorker do
   end
 
   defp complete_exec_session(state, result_status, exit_code, duration_ms) do
-    ExecSession
-    |> Ash.get!(state.exec_session_id)
-    |> Ash.Changeset.for_update(:complete, %{
-      result_status: result_status,
-      exit_code: exit_code,
-      output: truncate_output(state.total_output),
-      duration_ms: duration_ms
-    })
-    |> Ash.update()
+    with {:ok, redacted_output} <- redact_exec_output(state, truncate_output(state.total_output)) do
+      ExecSession
+      |> Ash.get!(state.exec_session_id)
+      |> Ash.Changeset.for_update(:complete, %{
+        result_status: result_status,
+        exit_code: exit_code,
+        output: redacted_output,
+        duration_ms: duration_ms
+      })
+      |> Ash.update()
+    end
   end
 
   defp log_output_event(session_id, sequence, chunk) do
@@ -203,6 +206,20 @@ defmodule JidoCode.Forge.Workers.StreamingExecSessionWorker do
 
   defp emit_signal(session_id, type, data) do
     ForgePubSub.broadcast_session(session_id, {:signal, %{type: type, data: data}})
+  end
+
+  defp redact_exec_output(state, output) do
+    case ChannelRedaction.redact_artifact_payload(output, operation: :complete_exec_session_output) do
+      {:ok, redacted_output} ->
+        {:ok, redacted_output}
+
+      {:error, typed_error} = error ->
+        Logger.error(
+          "security_audit=forge_artifact_redaction_failed severity=high session_id=#{state.session_id} action=persistence_blocked operation=complete_exec_session_output sequence=#{state.sequence} error_type=#{typed_error.error_type} reason_type=#{typed_error.reason_type}"
+        )
+
+        error
+    end
   end
 
   defp truncate_output(output) when byte_size(output) > @max_output_size do

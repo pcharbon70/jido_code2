@@ -7743,3 +7743,145 @@ Excluding tags: [:sprite_integration]
 ......
 Finished in 3.4 seconds (1.0s async, 2.4s sync)
 86 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `lib/jido_code/forge/channel_redaction.ex`  
+  Added shared redaction gate for PubSub/artifact channels with typed security error `forge_channel_redaction_failed`.
+- `lib/jido_code/forge/pubsub.ex`  
+  `broadcast_session/2` and `broadcast_sessions/1` now redact before publish; on failure they block publish, log security audit, and return typed error.
+- `lib/jido_code/forge/persistence.ex`  
+  `record_execution_complete/2` and `record_failure/2` now redact before DB writes; on failure they block persistence and return typed error.
+- `lib/jido_code/forge/operations.ex`  
+  `mark_failed/2` now redacts error details before persistence and PubSub broadcast; returns error if redaction/publish fails.
+- `lib/jido_code/forge/workers/streaming_exec_session_worker.ex`  
+  Exec-session artifact output is redacted before `ExecSession` completion write; blocked with typed error on failure.
+- `test/jido_code/forge/pubsub_redaction_test.exs`  
+  Added PubSub masking/order test and failure-path typed-error/blocking test.
+- `test/jido_code/forge/persistence_redaction_test.exs`  
+  Added artifact persistence masking test and failure-path typed-error/blocking test.
+
+2) tests/commands executed
+- `mix test test/jido_code/forge/pubsub_redaction_test.exs test/jido_code/forge/persistence_redaction_test.exs`  
+  Passed (`4 tests, 0 failures`) in initial run.
+- `mix precommit`  
+  Failed in this sandbox: Mix PubSub startup requires opening local TCP socket (`Mix.Sync.PubSub.subscribe/1` -> `:eperm`).
+- `MIX_OS_CONCURRENCY_LOCK=0 mix precommit`  
+  Still failed for same Mix PubSub socket restriction.
+- `MIX_OS_CONCURRENCY_LOCK=0 mix deps.unlock --unused`  
+  Succeeded.
+- Formatting was run via temporary in-command formatter-plugin disable/restore workaround because plugin loading also triggers Mix PubSub socket usage in this environment.
+
+3) acceptance criteria coverage
+- AC1: PubSub payloads + artifact writes redacted before publish/save  
+  Covered by `lib/jido_code/forge/pubsub.ex:31`, `lib/jido_code/forge/persistence.ex:130`, `lib/jido_code/forge/workers/streaming_exec_session_worker.ex:184`, `lib/jido_code/forge/operations.ex:90`.
+- AC2: run detail consumers receive masked data with integrity/ordering preserved  
+  Verified in `test/jido_code/forge/pubsub_redaction_test.exs:28` (same event shape `{:output, %{seq: ...}}`, ordered seq `1 -> 2`, masked chunks).
+- AC3: redaction failure blocks publication/persistence with typed security error  
+  Implemented in `lib/jido_code/forge/channel_redaction.ex:116`; enforced in PubSub/persistence codepaths and verified in:
+  - `test/jido_code/forge/pubsub_redaction_test.exs:56`
+  - `test/jido_code/forge/persistence_redaction_test.exs:63`
+
+4) blockers/assumptions
+- Blocker: full `mix precommit` could not be completed in this sandbox due OS-level socket restrictions (`:eperm`) affecting Mix PubSub startup; later DB TCP to `localhost:5432` was also blocked in direct-run attempts.
+- Assumption: for this repo state, ST-SEC-005 maps to existing Forge run/session stream + artifact channels (current implementation path for run detail streaming/persistence).
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 578312, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+........................**..22:04:07.014 request_id=GJQBLS2fBDMX3wIAAC9B [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+..22:04:07.144 request_id=GJQBLTUvtK488ToAAAYG [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:07.161 request_id=GJQBLTY519088ToAAAZm [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:07.169 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+..22:04:07.258 request_id=GJQBLTwzsfTneuoAAAKF [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.SettingsLive reason=missing_or_expired_session
+.22:04:07.295 request_id=GJQBLT5DsUU_Sc4AAAgG [warning] auth_sign_out_failed reason=:forced_invalidation_failure
+22:04:07.298 request_id=GJQBLT5tocM_Sc4AAAgm [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:07.311 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+..22:04:07.321 [error] Postgrex.Protocol (#PID<0.3429.0> ("db_conn_11")) disconnected: ** (DBConnection.ConnectionError) owner #PID<0.3793.0> exited
+
+Client #PID<0.3795.0> (Task.Supervised) is still using a connection from owner at location:
+
+    (erts 16.1) :prim_inet.recv0/3
+    (postgrex 0.22.0) lib/postgrex/protocol.ex:3272: Postgrex.Protocol.msg_recv/4
+    (postgrex 0.22.0) lib/postgrex/protocol.ex:2967: Postgrex.Protocol.recv_transaction/4
+    (postgrex 0.22.0) lib/postgrex/protocol.ex:2253: Postgrex.Protocol.rebind_execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql/sandbox.ex:412: Ecto.Adapters.SQL.Sandbox.Connection.proxy/3
+    (db_connection 2.9.0) lib/db_connection/holder.ex:356: DBConnection.Holder.holder_apply/4
+    (db_connection 2.9.0) lib/db_connection.ex:1539: DBConnection.run_execute/5
+    (db_connection 2.9.0) lib/db_connection.ex:1587: DBConnection.run_with_retries/5
+    (db_connection 2.9.0) lib/db_connection.ex:848: DBConnection.execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3
+    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2
+    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2
+    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4
+    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5
+    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3
+
+The connection itself was checked out by #PID<0.3795.0> (Task.Supervised) at location:
+
+    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3
+    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2
+    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2
+    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4
+    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5
+    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:89: anonymous fn/3 in Ash.Actions.Read.run/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:88: Ash.Actions.Read.run/3
+    (ash 3.16.0) lib/ash.ex:3022: Ash.do_read_one/3
+
+
+22:04:07.324 [error] security_audit=forge_artifact_redaction_failed severity=high session_id=persist-redaction-failure-12418 action=persistence_blocked operation=record_execution_complete error_type=forge_channel_redaction_failed reason_type=forced_redaction_failure
+22:04:07.323 [error] Task #PID<0.3795.0> started from #PID<0.3792.0> terminating
+** (stop) exited in: DBConnection.Holder.checkout(#PID<0.3794.0>, [log: #Function<14.108441648/1 in Ecto.Adapters.SQL.with_log/4>, source: "forge_events", cache_statement: "ecto_insert_all_forge_events", cast_params: [%{status: :completed}, "019c5a51-f817-7623-b779-ba71349c7378", ~U[2026-02-14 04:04:07.319423Z], "019c5a51-f810-7eb9-887f-3d1634ec11b6", "session.execution_complete"], returning: [:id, :data, :timestamp, :session_id, :event_type, :exec_session_sequence], pool: DBConnection.Ownership, repo: JidoCode.Repo, timeout: 15000, pool_size: 20])
+    ** (EXIT) shutdown: %DBConnection.ConnectionError{message: "owner #PID<0.3793.0> exited\n\nClient #PID<0.3795.0> (Task.Supervised) is still using a connection from owner at location:\n\n    (erts 16.1) :prim_inet.recv0/3\n    (postgrex 0.22.0) lib/postgrex/protocol.ex:3272: Postgrex.Protocol.msg_recv/4\n    (postgrex 0.22.0) lib/postgrex/protocol.ex:2967: Postgrex.Protocol.recv_transaction/4\n    (postgrex 0.22.0) lib/postgrex/protocol.ex:2253: Postgrex.Protocol.rebind_execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql/sandbox.ex:412: Ecto.Adapters.SQL.Sandbox.Connection.proxy/3\n    (db_connection 2.9.0) lib/db_connection/holder.ex:356: DBConnection.Holder.holder_apply/4\n    (db_connection 2.9.0) lib/db_connection.ex:1539: DBConnection.run_execute/5\n    (db_connection 2.9.0) lib/db_connection.ex:1587: DBConnection.run_with_retries/5\n    (db_connection 2.9.0) lib/db_connection.ex:848: DBConnection.execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3\n    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2\n    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2\n    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4\n    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5\n    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3\n\nThe connection itself was checked out by #PID<0.3795.0> (Task.Supervised) at location:\n\n    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3\n    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2\n    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2\n    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4\n    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5\n    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:89: anonymous fn/3 in Ash.Actions.Read.run/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:88: Ash.Actions.Read.run/3\n    (ash 3.16.0) lib/ash.ex:3022: Ash.do_read_one/3\n\n", severity: :error, reason: :error}
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4782: anonymous fn/2 in Ash.Changeset.transaction_hooks/2
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4665: Ash.Changeset.with_hooks/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:321: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/forge/event_logger.ex:28: JidoCode.Forge.EventLogger.log_event/4
+    (elixir 1.19.2) lib/task/supervised.ex:105: Task.Supervised.invoke_mfa/2
+Function: #Function<1.109177536/0 in JidoCode.Forge.Persistence.log_event/3>
+    Args: []
+.......22:04:07.711 [warning] Quality checks failed for test-retry-1221 (attempt 1/3), retrying...
+22:04:07.718 [warning] Quality checks failed for test-retry-1221 (attempt 2/3), retrying...
+.22:04:07.763 [warning] Quality checks failed for test-fail-963 (attempt 1/3), retrying...
+22:04:07.769 [warning] Quality checks failed for test-fail-963 (attempt 2/3), retrying...
+22:04:07.774 [error] Quality checks failed for test-fail-963 after 3 attempts, giving up
+22:04:07.775 [warning] Pull request failed for test-fail-963 after 3 attempts
+..22:04:07.856 request_id=GJQBLV-4Q4tZA_EAADSB [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+.22:04:07.875 request_id=GJQBLWC8eseXzx4AADVh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:07.888 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.22:04:07.933 request_id=GJQBLWQ47wrQMQYAAAVi [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:07.958 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.22:04:08.000 request_id=GJQBLWg6qNGZj2wAADdB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:08.007 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.22:04:08.028 request_id=GJQBLWnnZdAjw9kAAAfE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:08.042 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.22:04:08.109 request_id=GJQBLW64DD_BAnkAAAhE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+22:04:08.113 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+22:04:08.126 request_id=GJQBLW86X9rBAnkAAAPF [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+22:04:08.130 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.22:04:08.156 request_id=GJQBLXGv-ZbIPgIAAAkm [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+....22:04:08.176 [warning] security_audit=blocked_plaintext_secret_persistence resource=github_repo field=webhook_secret action=update actor_id=unknown actor_email=unknown
+..22:04:08.180 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:pubsub-redaction-failure-14658 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=forced_redaction_failure
+.....................22:04:09.018 request_id=GJQBLaTG_Upv7-EAAD4B [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+22:04:09.026 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+......22:04:09.273 request_id=GJQBLbQabDeH7UEAAEBh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+22:04:09.283 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+..22:04:09.350 request_id=GJQBLbiwi2k9_88AAAvE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+22:04:09.353 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+...22:04:09.419 request_id=GJQBLbzSK7CmbNMAAAfi [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+22:04:09.430 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.
+Finished in 3.7 seconds (1.0s async, 2.6s sync)
+90 tests, 0 failures, 2 skipped (4 excluded)

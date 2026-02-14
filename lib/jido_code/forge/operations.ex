@@ -7,7 +7,9 @@ defmodule JidoCode.Forge.Operations do
   side effects that should not be embedded in Ash actions.
   """
 
-  alias JidoCode.Forge.{EventLogger, Manager, PubSub}
+  require Logger
+
+  alias JidoCode.Forge.{ChannelRedaction, EventLogger, Manager, PubSub}
   alias JidoCode.Forge.Resources.{Session, Checkpoint}
 
   @doc """
@@ -87,9 +89,10 @@ defmodule JidoCode.Forge.Operations do
   @spec mark_failed(String.t() | Ash.UUID.t(), map()) :: {:ok, Session.t()} | {:error, term()}
   def mark_failed(session_id, error_details) do
     with {:ok, session} <- load_session(session_id),
-         {:ok, session} <- do_mark_failed(session, error_details),
-         :ok <- log_event(session.id, "session.failed", error_details) do
-      PubSub.broadcast_session(to_string(session.id), {:failed, error_details})
+         {:ok, redacted_error_details} <- redact_failure_details(session.id, error_details),
+         {:ok, session} <- do_mark_failed(session, redacted_error_details),
+         :ok <- log_event(session.id, "session.failed", redacted_error_details),
+         :ok <- PubSub.broadcast_session(to_string(session.id), {:failed, redacted_error_details}) do
       {:ok, session}
     end
   end
@@ -190,6 +193,20 @@ defmodule JidoCode.Forge.Operations do
     session
     |> Ash.Changeset.for_update(:mark_failed, %{last_error: error_details})
     |> Ash.update()
+  end
+
+  defp redact_failure_details(session_id, error_details) do
+    case ChannelRedaction.redact_artifact_payload(error_details, operation: :mark_failed) do
+      {:ok, redacted_error_details} ->
+        {:ok, redacted_error_details}
+
+      {:error, typed_error} = error ->
+        Logger.error(
+          "security_audit=forge_artifact_redaction_failed severity=high session_id=#{session_id} action=persistence_blocked operation=mark_failed error_type=#{typed_error.error_type} reason_type=#{typed_error.reason_type}"
+        )
+
+        error
+    end
   end
 
   defp do_complete(session) do

@@ -7,6 +7,10 @@ defmodule JidoCode.Forge.PubSub do
   - `"forge:session:<id>"` - Per-session state/output events
   """
 
+  require Logger
+
+  alias JidoCode.Forge.ChannelRedaction
+
   @pubsub JidoCode.PubSub
 
   def sessions_topic, do: "forge:sessions"
@@ -24,11 +28,35 @@ defmodule JidoCode.Forge.PubSub do
     Phoenix.PubSub.unsubscribe(@pubsub, session_topic(id))
   end
 
+  @spec broadcast_sessions(term()) :: :ok | {:error, ChannelRedaction.typed_security_error()}
   def broadcast_sessions(msg) do
-    Phoenix.PubSub.broadcast(@pubsub, sessions_topic(), msg)
+    topic = sessions_topic()
+
+    with {:ok, redacted_msg} <- ChannelRedaction.redact_pubsub_payload(msg, operation: :broadcast_sessions) do
+      Phoenix.PubSub.broadcast(@pubsub, topic, redacted_msg)
+    else
+      {:error, typed_error} = error ->
+        emit_redaction_failure(topic, typed_error)
+        error
+    end
   end
 
+  @spec broadcast_session(term(), term()) :: :ok | {:error, ChannelRedaction.typed_security_error()}
   def broadcast_session(id, msg) do
-    Phoenix.PubSub.broadcast(@pubsub, session_topic(id), msg)
+    topic = session_topic(id)
+
+    with {:ok, redacted_msg} <- ChannelRedaction.redact_pubsub_payload(msg, operation: :broadcast_session) do
+      Phoenix.PubSub.broadcast(@pubsub, topic, redacted_msg)
+    else
+      {:error, typed_error} = error ->
+        emit_redaction_failure(topic, typed_error)
+        error
+    end
+  end
+
+  defp emit_redaction_failure(topic, typed_error) do
+    Logger.error(
+      "security_audit=forge_pubsub_redaction_failed severity=high topic=#{topic} action=publication_blocked error_type=#{typed_error.error_type} reason_type=#{typed_error.reason_type}"
+    )
   end
 end
