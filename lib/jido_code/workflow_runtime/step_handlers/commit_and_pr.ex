@@ -58,6 +58,15 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
   @secret_scan_clean_state "clean"
   @secret_scan_violation_state "violations_detected"
   @secret_scan_tooling_error_state "tooling_error"
+  @diff_size_policy_error_type "workflow_commit_and_pr_diff_size_policy_failed"
+  @diff_size_policy_operation "validate_diff_size_threshold"
+  @diff_size_policy_stage "pre_ship_diff_size_policy"
+  @diff_size_policy_remediation """
+  Split the change set into smaller commits or request explicit policy override, then retry CommitAndPR shipping.
+  """
+  @diff_size_check_id "diff_size_threshold"
+  @diff_size_check_name "Diff size threshold policy check"
+  @default_diff_max_changed_lines 800
   @blocked_shipping_actions ["commit", "push", "create_pr"]
 
   @impl true
@@ -68,7 +77,9 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
          {:ok, workspace_policy_check} <-
            validate_workspace_cleanliness(args, resolved_branch_context),
          {:ok, secret_scan_policy_check} <-
-           validate_secret_scan(args, resolved_branch_context, opts) do
+           validate_secret_scan(args, resolved_branch_context, opts),
+         {:ok, diff_size_policy_check} <-
+           validate_diff_size_threshold(args, resolved_branch_context, opts) do
       maybe_probe_commit(resolved_branch_context, opts)
 
       {:ok,
@@ -79,16 +90,18 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
            collision_handling: branch_setup |> map_get(:collision_handling, "collision_handling") |> normalize_map(),
            policy_checks: %{
              workspace_cleanliness: workspace_policy_check,
-             secret_scan: secret_scan_policy_check
+             secret_scan: secret_scan_policy_check,
+             diff_size_threshold: diff_size_policy_check
            }
          },
          branch_setup: branch_setup,
          policy_checks: %{
            workspace_cleanliness: workspace_policy_check,
-           secret_scan: secret_scan_policy_check
+           secret_scan: secret_scan_policy_check,
+           diff_size_threshold: diff_size_policy_check
          },
          shipping_flow: %{
-           completed_stage: "secret_scan_policy_check",
+           completed_stage: "diff_size_policy_check",
            next_stage: "commit_changes"
          }
        }}
@@ -933,6 +946,323 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
     }
   end
 
+  @doc false
+  @spec default_diff_size_runner(map(), map()) :: {:ok, map()} | {:error, map()}
+  def default_diff_size_runner(args, _branch_context) when is_map(args) do
+    {:ok, diff_metrics_from_sources(args, %{})}
+  end
+
+  def default_diff_size_runner(_args, _branch_context) do
+    {:error,
+     %{
+       reason_type: "diff_size_input_invalid",
+       detail: "Diff size input payload is invalid and shipping is blocked by fail-closed policy.",
+       reason: :invalid_diff_size_args
+     }}
+  end
+
+  defp validate_diff_size_threshold(args, branch_context, opts)
+       when is_map(args) and is_map(branch_context) and is_list(opts) do
+    diff_size_runner =
+      Keyword.get(opts, :diff_size_runner, &__MODULE__.default_diff_size_runner/2)
+
+    case invoke_diff_size_runner(diff_size_runner, args, branch_context) do
+      {:ok, diff_size_result} ->
+        diff_size_policy_check =
+          build_diff_size_policy_check(args, branch_context, diff_size_result)
+
+        if diff_size_policy_check.status == "passed" do
+          {:ok, diff_size_policy_check}
+        else
+          {:error,
+           diff_size_policy_error(
+             diff_size_reason_type(diff_size_policy_check),
+             Map.get(
+               diff_size_policy_check,
+               :detail,
+               "Diff size threshold policy blocked shipping."
+             ),
+             branch_context,
+             diff_size_policy_check,
+             map_get(diff_size_result, :reason, "reason")
+           )}
+        end
+
+      {:error, diff_size_runner_failure} ->
+        diff_size_policy_check =
+          build_diff_size_tooling_failure_policy_check(
+            args,
+            branch_context,
+            diff_size_runner_failure
+          )
+
+        {:error,
+         diff_size_policy_error(
+           "policy_violation",
+           Map.get(
+             diff_size_policy_check,
+             :detail,
+             "Diff size metrics are unavailable and shipping is blocked by fail-closed policy."
+           ),
+           branch_context,
+           diff_size_policy_check,
+           diff_size_runner_failure
+         )}
+    end
+  end
+
+  defp validate_diff_size_threshold(_args, branch_context, _opts) do
+    diff_size_policy_check =
+      build_diff_size_tooling_failure_policy_check(
+        %{},
+        branch_context,
+        :invalid_diff_size_args
+      )
+
+    {:error,
+     diff_size_policy_error(
+       "policy_violation",
+       Map.get(
+         diff_size_policy_check,
+         :detail,
+         "Diff size metrics are unavailable and shipping is blocked by fail-closed policy."
+       ),
+       branch_context,
+       diff_size_policy_check,
+       :invalid_diff_size_args
+     )}
+  end
+
+  defp invoke_diff_size_runner(diff_size_runner, args, branch_context)
+       when is_function(diff_size_runner, 2) and is_map(args) and is_map(branch_context) do
+    safe_invoke_diff_size_runner(diff_size_runner, args, branch_context)
+  end
+
+  defp invoke_diff_size_runner(diff_size_runner, args, branch_context)
+       when is_function(diff_size_runner, 1) and is_map(args) and is_map(branch_context) do
+    safe_invoke_diff_size_runner(
+      fn _args, context -> diff_size_runner.(context) end,
+      args,
+      branch_context
+    )
+  end
+
+  defp invoke_diff_size_runner(_diff_size_runner, _args, _branch_context) do
+    {:error,
+     %{
+       reason_type: "diff_size_runner_invalid",
+       detail: "Diff size runner configuration is invalid."
+     }}
+  end
+
+  defp safe_invoke_diff_size_runner(diff_size_runner, args, branch_context)
+       when is_function(diff_size_runner, 2) and is_map(args) and is_map(branch_context) do
+    try do
+      case diff_size_runner.(args, branch_context) do
+        :ok ->
+          {:ok, diff_metrics_from_sources(args, %{})}
+
+        {:ok, result} when is_map(result) ->
+          {:ok, result}
+
+        {:ok, result} when is_integer(result) and result >= 0 ->
+          {:ok, %{total_lines_changed: result}}
+
+        {:ok, result} ->
+          {:error,
+           %{
+             reason_type: "diff_size_invalid_result",
+             detail: "Diff size runner returned an invalid result (#{inspect(result)}).",
+             reason: result
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+
+        other ->
+          {:error,
+           %{
+             reason_type: "diff_size_invalid_result",
+             detail: "Diff size runner returned an invalid result (#{inspect(other)}).",
+             reason: other
+           }}
+      end
+    rescue
+      exception ->
+        {:error,
+         %{
+           reason_type: "diff_size_runner_crashed",
+           detail: "Diff size runner crashed (#{Exception.message(exception)}).",
+           reason: exception
+         }}
+    catch
+      kind, reason ->
+        {:error,
+         %{
+           reason_type: "diff_size_runner_threw",
+           detail: "Diff size runner threw #{inspect({kind, reason})}.",
+           reason: {kind, reason}
+         }}
+    end
+  end
+
+  defp build_diff_size_policy_check(args, branch_context, diff_size_result)
+       when is_map(args) and is_map(branch_context) and is_map(diff_size_result) do
+    environment_mode = environment_mode_from_args(args)
+    diff_metrics = diff_metrics_from_sources(args, diff_size_result)
+    threshold_policy = diff_threshold_policy(args, diff_size_result)
+
+    total_lines_changed = Map.get(diff_metrics, :total_lines_changed, 0)
+
+    max_changed_lines =
+      Map.get(threshold_policy, :max_changed_lines, @default_diff_max_changed_lines)
+
+    threshold_exceeded = total_lines_changed > max_changed_lines
+
+    decision = diff_size_decision(threshold_exceeded, Map.get(threshold_policy, :on_exceed))
+    status = if threshold_exceeded, do: "failed", else: "passed"
+    blocked_actions = diff_size_blocked_actions(status)
+
+    branch_derivation =
+      branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map()
+
+    %{
+      id: @diff_size_check_id,
+      name: @diff_size_check_name,
+      status: status,
+      decision: decision,
+      threshold_exceeded: threshold_exceeded,
+      manual_override_required: decision == "approval_override_required",
+      metrics: diff_metrics,
+      threshold_policy: threshold_policy,
+      blocked_actions: blocked_actions,
+      blocked_action_details: diff_size_blocked_action_details(decision, blocked_actions),
+      detail:
+        diff_size_result
+        |> map_get(
+          :detail,
+          "detail",
+          diff_size_policy_detail(
+            status,
+            decision,
+            total_lines_changed,
+            max_changed_lines,
+            Map.get(threshold_policy, :source)
+          )
+        )
+        |> normalize_optional_string() ||
+          diff_size_policy_detail(
+            status,
+            decision,
+            total_lines_changed,
+            max_changed_lines,
+            Map.get(threshold_policy, :source)
+          ),
+      remediation:
+        diff_size_result
+        |> map_get(
+          :remediation,
+          "remediation",
+          diff_size_policy_remediation(status, decision)
+        )
+        |> normalize_optional_string() || diff_size_policy_remediation(status, decision),
+      run_metadata: %{
+        workflow_name:
+          branch_derivation
+          |> map_get(:workflow_name, "workflow_name")
+          |> normalize_optional_string(),
+        run_id: branch_derivation |> map_get(:run_id, "run_id") |> normalize_optional_string(),
+        branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+        environment_mode: environment_mode
+      },
+      step_metadata: diff_size_step_metadata(),
+      checked_at: timestamp_now()
+    }
+  end
+
+  defp build_diff_size_policy_check(_args, branch_context, _diff_size_result) do
+    build_diff_size_tooling_failure_policy_check(
+      %{},
+      branch_context,
+      :invalid_diff_size_result
+    )
+  end
+
+  defp build_diff_size_tooling_failure_policy_check(args, branch_context, reason)
+       when is_map(args) and is_map(branch_context) do
+    environment_mode = environment_mode_from_args(args)
+    threshold_policy = diff_threshold_policy(args, %{})
+    diff_metrics = diff_metrics_from_sources(args, %{})
+
+    branch_derivation =
+      branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map()
+
+    detail =
+      map_get(
+        reason,
+        :detail,
+        "detail",
+        "Diff size metrics are unavailable and shipping is blocked by fail-closed policy."
+      )
+
+    %{
+      id: @diff_size_check_id,
+      name: @diff_size_check_name,
+      status: "failed",
+      decision: "blocked",
+      threshold_exceeded: false,
+      manual_override_required: false,
+      metrics: diff_metrics,
+      threshold_policy: threshold_policy,
+      blocked_actions: @blocked_shipping_actions,
+      blocked_action_details: diff_size_blocked_action_details("tooling_error", @blocked_shipping_actions),
+      detail: detail,
+      remediation: @diff_size_policy_remediation,
+      run_metadata: %{
+        workflow_name:
+          branch_derivation
+          |> map_get(:workflow_name, "workflow_name")
+          |> normalize_optional_string(),
+        run_id: branch_derivation |> map_get(:run_id, "run_id") |> normalize_optional_string(),
+        branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+        environment_mode: environment_mode
+      },
+      step_metadata: diff_size_step_metadata(),
+      checked_at: timestamp_now()
+    }
+  end
+
+  defp build_diff_size_tooling_failure_policy_check(_args, branch_context, _reason) do
+    branch_derivation =
+      branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map()
+
+    %{
+      id: @diff_size_check_id,
+      name: @diff_size_check_name,
+      status: "failed",
+      decision: "blocked",
+      threshold_exceeded: false,
+      manual_override_required: false,
+      metrics: %{files_changed: 0, lines_added: 0, lines_deleted: 0, total_lines_changed: 0},
+      threshold_policy: default_diff_threshold_policy(),
+      blocked_actions: @blocked_shipping_actions,
+      blocked_action_details: diff_size_blocked_action_details("tooling_error", @blocked_shipping_actions),
+      detail: "Diff size metrics are unavailable and shipping is blocked by fail-closed policy.",
+      remediation: @diff_size_policy_remediation,
+      run_metadata: %{
+        workflow_name:
+          branch_derivation
+          |> map_get(:workflow_name, "workflow_name")
+          |> normalize_optional_string(),
+        run_id: branch_derivation |> map_get(:run_id, "run_id") |> normalize_optional_string(),
+        branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+        environment_mode: "cloud"
+      },
+      step_metadata: diff_size_step_metadata(),
+      checked_at: timestamp_now()
+    }
+  end
+
   defp maybe_probe_commit(branch_context, opts) when is_map(branch_context) and is_list(opts) do
     case Keyword.get(opts, :commit_probe) do
       commit_probe when is_function(commit_probe, 1) ->
@@ -1383,6 +1713,416 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
     step_metadata(@secret_scan_policy_stage, @secret_scan_policy_operation)
   end
 
+  defp diff_size_reason_type(%{decision: "approval_override_required"}),
+    do: "approval_override_required"
+
+  defp diff_size_reason_type(%{decision: "blocked"}), do: "diff_size_threshold_exceeded"
+  defp diff_size_reason_type(_diff_size_policy_check), do: "policy_violation"
+
+  defp diff_size_decision(false, _on_exceed), do: "within_threshold"
+  defp diff_size_decision(true, "require_approval_override"), do: "approval_override_required"
+  defp diff_size_decision(true, _on_exceed), do: "blocked"
+
+  defp diff_size_blocked_actions("failed"), do: @blocked_shipping_actions
+  defp diff_size_blocked_actions(_status), do: []
+
+  defp diff_size_blocked_action_details(_decision, blocked_actions)
+       when is_list(blocked_actions) and blocked_actions == [] do
+    []
+  end
+
+  defp diff_size_blocked_action_details(decision, blocked_actions)
+       when is_list(blocked_actions) do
+    Enum.map(blocked_actions, fn blocked_action ->
+      %{
+        action: blocked_action,
+        blocked: true,
+        reason: diff_size_block_reason(decision),
+        detail: "Diff size threshold policy blocked #{blocked_action}."
+      }
+    end)
+  end
+
+  defp diff_size_blocked_action_details(_decision, _blocked_actions), do: []
+
+  defp diff_size_block_reason("approval_override_required"), do: "approval_override_required"
+  defp diff_size_block_reason("blocked"), do: "diff_size_threshold_exceeded"
+  defp diff_size_block_reason("tooling_error"), do: "diff_size_tooling_error"
+  defp diff_size_block_reason(_decision), do: "policy_violation"
+
+  defp diff_size_policy_detail(
+         "passed",
+         "within_threshold",
+         total_lines_changed,
+         max_changed_lines,
+         _source
+       ) do
+    "Diff size #{total_lines_changed} changed line(s) is within configured threshold #{max_changed_lines}."
+  end
+
+  defp diff_size_policy_detail(
+         "failed",
+         "approval_override_required",
+         total_lines_changed,
+         max_changed_lines,
+         source
+       ) do
+    "Diff size #{total_lines_changed} changed line(s) exceeded #{diff_threshold_source_label(source)} threshold #{max_changed_lines}; explicit approval override is required before shipping."
+  end
+
+  defp diff_size_policy_detail(
+         "failed",
+         "blocked",
+         total_lines_changed,
+         max_changed_lines,
+         source
+       ) do
+    "Diff size #{total_lines_changed} changed line(s) exceeded #{diff_threshold_source_label(source)} threshold #{max_changed_lines}; shipping is blocked by policy."
+  end
+
+  defp diff_size_policy_detail(
+         _status,
+         _decision,
+         total_lines_changed,
+         max_changed_lines,
+         source
+       ) do
+    "Diff size #{total_lines_changed} changed line(s) exceeded #{diff_threshold_source_label(source)} threshold #{max_changed_lines}; shipping is blocked by policy."
+  end
+
+  defp diff_size_policy_remediation("passed", "within_threshold"),
+    do: "Diff size policy satisfied."
+
+  defp diff_size_policy_remediation("failed", "approval_override_required") do
+    "Request explicit approval override for the oversized diff before retrying CommitAndPR shipping."
+  end
+
+  defp diff_size_policy_remediation(_status, _decision), do: @diff_size_policy_remediation
+
+  defp diff_threshold_source_label("workflow_policy"), do: "workflow"
+  defp diff_threshold_source_label("project_policy"), do: "project"
+  defp diff_threshold_source_label("shipping_policy"), do: "shipping"
+  defp diff_threshold_source_label("runner_policy"), do: "runner"
+  defp diff_threshold_source_label("args"), do: "input"
+  defp diff_threshold_source_label(_source), do: "configured"
+
+  defp diff_size_step_metadata do
+    step_metadata(@diff_size_policy_stage, @diff_size_policy_operation)
+  end
+
+  defp diff_threshold_policy(args, diff_size_result)
+       when is_map(args) and is_map(diff_size_result) do
+    [
+      runner_threshold_candidate(diff_size_result),
+      {"workflow_policy", policy_diff_threshold_candidate(map_get(args, :workflow_policy, "workflow_policy"))},
+      {"project_policy", policy_diff_threshold_candidate(map_get(args, :project_policy, "project_policy"))},
+      {"shipping_policy", policy_diff_threshold_candidate(map_get(args, :shipping_policy, "shipping_policy"))},
+      {"args",
+       map_get(
+         args,
+         :diff_size_threshold,
+         "diff_size_threshold",
+         map_get(args, :max_diff_lines, "max_diff_lines")
+       )}
+    ]
+    |> Enum.find_value(&normalize_diff_threshold_candidate/1)
+    |> case do
+      nil -> default_diff_threshold_policy()
+      threshold_policy -> threshold_policy
+    end
+  end
+
+  defp diff_threshold_policy(_args, _diff_size_result), do: default_diff_threshold_policy()
+
+  defp runner_threshold_candidate(diff_size_result) when is_map(diff_size_result) do
+    {"runner_policy",
+     map_get(
+       diff_size_result,
+       :threshold_policy,
+       "threshold_policy",
+       map_get(diff_size_result, :diff_size_threshold, "diff_size_threshold")
+     )}
+  end
+
+  defp runner_threshold_candidate(_diff_size_result), do: {"runner_policy", nil}
+
+  defp policy_diff_threshold_candidate(policy_map) when is_map(policy_map) do
+    map_get(
+      policy_map,
+      :diff_size_threshold,
+      "diff_size_threshold",
+      map_get(
+        policy_map,
+        :diff_size,
+        "diff_size",
+        map_get(policy_map, :max_diff_lines, "max_diff_lines")
+      )
+    )
+  end
+
+  defp policy_diff_threshold_candidate(_policy_map), do: nil
+
+  defp normalize_diff_threshold_candidate({source, candidate}) do
+    max_changed_lines = diff_threshold_max_lines(candidate)
+
+    if is_integer(max_changed_lines) and max_changed_lines > 0 do
+      %{
+        source: source,
+        max_changed_lines: max_changed_lines,
+        on_exceed: diff_threshold_exceed_policy(candidate)
+      }
+    else
+      nil
+    end
+  end
+
+  defp normalize_diff_threshold_candidate(_candidate), do: nil
+
+  defp diff_threshold_max_lines(candidate) when is_integer(candidate), do: candidate
+
+  defp diff_threshold_max_lines(candidate) when is_map(candidate) do
+    candidate
+    |> map_get(
+      :max_changed_lines,
+      "max_changed_lines",
+      map_get(
+        candidate,
+        :max_lines,
+        "max_lines",
+        map_get(
+          candidate,
+          :threshold,
+          "threshold",
+          map_get(
+            candidate,
+            :line_limit,
+            "line_limit",
+            map_get(candidate, :limit, "limit")
+          )
+        )
+      )
+    )
+    |> normalize_optional_non_negative_integer()
+  end
+
+  defp diff_threshold_max_lines(candidate) do
+    candidate
+    |> normalize_optional_non_negative_integer()
+  end
+
+  defp diff_threshold_exceed_policy(%{} = candidate) do
+    candidate
+    |> map_get(
+      :on_exceed,
+      "on_exceed",
+      map_get(
+        candidate,
+        :exceed_action,
+        "exceed_action",
+        map_get(
+          candidate,
+          :decision,
+          "decision",
+          map_get(candidate, :outcome, "outcome", "block")
+        )
+      )
+    )
+    |> normalize_diff_threshold_exceed_policy()
+  end
+
+  defp diff_threshold_exceed_policy(_candidate), do: "block"
+
+  defp normalize_diff_threshold_exceed_policy(value) do
+    value
+    |> normalize_optional_string()
+    |> case do
+      nil ->
+        "block"
+
+      normalized_value ->
+        case String.downcase(normalized_value) do
+          "block" -> "block"
+          "blocked" -> "block"
+          "deny" -> "block"
+          "escalate" -> "require_approval_override"
+          "approval_override" -> "require_approval_override"
+          "require_approval_override" -> "require_approval_override"
+          "manual_override" -> "require_approval_override"
+          _other -> "block"
+        end
+    end
+  end
+
+  defp default_diff_threshold_policy do
+    %{
+      source: "default",
+      max_changed_lines: @default_diff_max_changed_lines,
+      on_exceed: "block"
+    }
+  end
+
+  defp diff_metrics_from_sources(args, diff_size_result)
+       when is_map(args) and is_map(diff_size_result) do
+    result_metrics =
+      diff_size_result
+      |> map_get(:metrics, "metrics")
+      |> normalize_map()
+
+    args_metrics =
+      args
+      |> map_get(:diff_metrics, "diff_metrics")
+      |> normalize_map()
+
+    files_changed =
+      first_non_negative_integer(
+        [
+          map_get(result_metrics, :files_changed, "files_changed"),
+          map_get(result_metrics, :changed_files_count, "changed_files_count"),
+          map_get(diff_size_result, :files_changed, "files_changed"),
+          map_get(diff_size_result, :changed_files_count, "changed_files_count"),
+          map_get(args_metrics, :files_changed, "files_changed"),
+          map_get(args_metrics, :changed_files_count, "changed_files_count"),
+          map_get(args, :files_changed, "files_changed"),
+          map_get(args, :changed_files_count, "changed_files_count"),
+          diff_files_count(diff_size_result, args)
+        ],
+        0
+      )
+
+    lines_added =
+      first_non_negative_integer(
+        [
+          map_get(result_metrics, :lines_added, "lines_added"),
+          map_get(result_metrics, :additions, "additions"),
+          map_get(diff_size_result, :lines_added, "lines_added"),
+          map_get(diff_size_result, :additions, "additions"),
+          map_get(args_metrics, :lines_added, "lines_added"),
+          map_get(args_metrics, :additions, "additions"),
+          map_get(args, :lines_added, "lines_added"),
+          map_get(args, :additions, "additions"),
+          map_get(args, :diff_lines_added, "diff_lines_added")
+        ],
+        0
+      )
+
+    lines_deleted =
+      first_non_negative_integer(
+        [
+          map_get(result_metrics, :lines_deleted, "lines_deleted"),
+          map_get(result_metrics, :deletions, "deletions"),
+          map_get(diff_size_result, :lines_deleted, "lines_deleted"),
+          map_get(diff_size_result, :deletions, "deletions"),
+          map_get(args_metrics, :lines_deleted, "lines_deleted"),
+          map_get(args_metrics, :deletions, "deletions"),
+          map_get(args, :lines_deleted, "lines_deleted"),
+          map_get(args, :deletions, "deletions"),
+          map_get(args, :diff_lines_deleted, "diff_lines_deleted")
+        ],
+        0
+      )
+
+    explicit_total_lines_changed =
+      first_optional_non_negative_integer([
+        map_get(result_metrics, :total_lines_changed, "total_lines_changed"),
+        map_get(result_metrics, :diff_size, "diff_size"),
+        map_get(result_metrics, :diff_line_count, "diff_line_count"),
+        map_get(diff_size_result, :total_lines_changed, "total_lines_changed"),
+        map_get(diff_size_result, :diff_size, "diff_size"),
+        map_get(diff_size_result, :diff_line_count, "diff_line_count"),
+        map_get(args_metrics, :total_lines_changed, "total_lines_changed"),
+        map_get(args_metrics, :diff_size, "diff_size"),
+        map_get(args_metrics, :diff_line_count, "diff_line_count"),
+        map_get(args, :total_lines_changed, "total_lines_changed"),
+        map_get(args, :diff_size, "diff_size"),
+        map_get(args, :diff_line_count, "diff_line_count")
+      ])
+
+    derived_total_lines_changed = lines_added + lines_deleted
+
+    total_lines_changed =
+      case explicit_total_lines_changed do
+        nil -> derived_total_lines_changed
+        parsed_total_lines_changed -> max(parsed_total_lines_changed, derived_total_lines_changed)
+      end
+
+    %{
+      files_changed: files_changed,
+      lines_added: lines_added,
+      lines_deleted: lines_deleted,
+      total_lines_changed: total_lines_changed
+    }
+  end
+
+  defp diff_metrics_from_sources(_args, _diff_size_result) do
+    %{files_changed: 0, lines_added: 0, lines_deleted: 0, total_lines_changed: 0}
+  end
+
+  defp diff_files_count(diff_size_result, args) do
+    diff_size_result
+    |> map_get(
+      :diff_files,
+      "diff_files",
+      map_get(
+        diff_size_result,
+        :changed_files,
+        "changed_files",
+        map_get(
+          args,
+          :diff_files,
+          "diff_files",
+          map_get(args, :changed_files, "changed_files")
+        )
+      )
+    )
+    |> normalize_optional_non_negative_integer()
+  end
+
+  defp first_non_negative_integer(candidates, fallback) when is_list(candidates) do
+    case first_optional_non_negative_integer(candidates) do
+      nil -> fallback
+      value -> value
+    end
+  end
+
+  defp first_non_negative_integer(_candidates, fallback), do: fallback
+
+  defp first_optional_non_negative_integer(candidates) when is_list(candidates) do
+    Enum.find_value(candidates, &normalize_optional_non_negative_integer/1)
+  end
+
+  defp first_optional_non_negative_integer(_candidates), do: nil
+
+  defp normalize_optional_non_negative_integer(value)
+       when is_integer(value) and value >= 0,
+       do: value
+
+  defp normalize_optional_non_negative_integer(value) when is_integer(value), do: nil
+
+  defp normalize_optional_non_negative_integer(value) when is_float(value) and value >= 0,
+    do: trunc(value)
+
+  defp normalize_optional_non_negative_integer(value) when is_float(value), do: nil
+  defp normalize_optional_non_negative_integer(true), do: 1
+  defp normalize_optional_non_negative_integer(false), do: 0
+
+  defp normalize_optional_non_negative_integer(value) when is_list(value),
+    do: length(value)
+
+  defp normalize_optional_non_negative_integer(value) do
+    value
+    |> normalize_optional_string()
+    |> case do
+      nil ->
+        nil
+
+      normalized_value ->
+        case Integer.parse(normalized_value) do
+          {parsed_value, ""} when parsed_value >= 0 -> parsed_value
+          _other -> nil
+        end
+    end
+  end
+
   defp environment_mode_from_args(args) when is_map(args) do
     args
     |> map_get(
@@ -1581,6 +2321,42 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
       branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
       branch_derivation: branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map(),
       policy_check: normalize_map(secret_scan_policy_check),
+      timestamp: timestamp_now()
+    }
+  end
+
+  defp diff_size_policy_error(
+         reason_type,
+         detail,
+         branch_context,
+         diff_size_policy_check,
+         reason
+       ) do
+    blocked_actions =
+      diff_size_policy_check
+      |> map_get(:blocked_actions, "blocked_actions", @blocked_shipping_actions)
+      |> case do
+        actions when is_list(actions) -> actions
+        _other -> @blocked_shipping_actions
+      end
+
+    %{
+      error_type: @diff_size_policy_error_type,
+      operation: @diff_size_policy_operation,
+      reason_type: normalize_reason_type(reason_type),
+      detail: format_failure_detail(detail, reason),
+      remediation:
+        diff_size_policy_check
+        |> map_get(:remediation, "remediation", @diff_size_policy_remediation)
+        |> normalize_optional_string() || @diff_size_policy_remediation,
+      blocked_stage: "commit_changes",
+      blocked_actions: blocked_actions,
+      halted_before_commit: true,
+      halted_before_push: true,
+      halted_before_pr: true,
+      branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+      branch_derivation: branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map(),
+      policy_check: normalize_map(diff_size_policy_check),
       timestamp: timestamp_now()
     }
   end

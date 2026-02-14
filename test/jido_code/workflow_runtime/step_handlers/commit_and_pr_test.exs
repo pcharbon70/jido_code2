@@ -3,7 +3,7 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
 
   alias JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR
 
-  test "execute derives deterministic branch names and persists workspace and secret scan policy checks" do
+  test "execute derives deterministic branch names and persists workspace secret scan and diff size policy checks" do
     branch_setup_calls = start_supervised!({Agent, fn -> [] end})
 
     branch_setup_runner = fn branch_context ->
@@ -15,7 +15,11 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
       workflow_name: "Implement Task",
       run_id: "RUN-12345",
       environment_mode: "cloud",
-      workspace_status: "clean"
+      workspace_status: "clean",
+      diff_metrics: %{files_changed: 2, lines_added: 18, lines_deleted: 7},
+      workflow_policy: %{
+        diff_size_threshold: %{max_changed_lines: 60, on_exceed: "block"}
+      }
     }
 
     {:ok, first_result} =
@@ -82,7 +86,43 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
              operation: "validate_secret_scan"
            } = first_result.run_artifacts.policy_checks.secret_scan.step_metadata
 
-    assert first_result.shipping_flow.completed_stage == "secret_scan_policy_check"
+    assert %{
+             id: "diff_size_threshold",
+             name: "Diff size threshold policy check",
+             status: "passed",
+             decision: "within_threshold",
+             threshold_exceeded: false,
+             manual_override_required: false,
+             blocked_actions: []
+           } = first_result.run_artifacts.policy_checks.diff_size_threshold
+
+    assert %{
+             files_changed: 2,
+             lines_added: 18,
+             lines_deleted: 7,
+             total_lines_changed: 25
+           } = first_result.run_artifacts.policy_checks.diff_size_threshold.metrics
+
+    assert %{
+             source: "workflow_policy",
+             max_changed_lines: 60,
+             on_exceed: "block"
+           } = first_result.run_artifacts.policy_checks.diff_size_threshold.threshold_policy
+
+    assert %{
+             workflow_name: "Implement Task",
+             run_id: "RUN-12345",
+             branch_name: "jidocode/implement-task/run-12345",
+             environment_mode: "cloud"
+           } = first_result.run_artifacts.policy_checks.diff_size_threshold.run_metadata
+
+    assert %{
+             step: "CommitAndPR",
+             stage: "pre_ship_diff_size_policy",
+             operation: "validate_diff_size_threshold"
+           } = first_result.run_artifacts.policy_checks.diff_size_threshold.step_metadata
+
+    assert first_result.shipping_flow.completed_stage == "diff_size_policy_check"
     assert first_result.shipping_flow.next_stage == "commit_changes"
 
     recorded_calls = branch_setup_calls |> Agent.get(&Enum.reverse(&1))
@@ -158,6 +198,10 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
     assert alpha_result.run_artifacts.policy_checks.workspace_cleanliness.status == "passed"
     assert alpha_result.run_artifacts.policy_checks.secret_scan.status == "passed"
     assert alpha_result.run_artifacts.policy_checks.secret_scan.scan_status == "clean"
+    assert alpha_result.run_artifacts.policy_checks.diff_size_threshold.status == "passed"
+
+    assert alpha_result.run_artifacts.policy_checks.diff_size_threshold.decision ==
+             "within_threshold"
   end
 
   test "branch collision retries once with deterministic suffix and non-destructive behavior" do
@@ -377,7 +421,7 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
     assert Agent.get(commit_probe_calls, & &1) == 0
   end
 
-  test "secret scan executes before commit probe in shipping path" do
+  test "secret scan and diff size checks execute before commit probe in shipping path" do
     ordered_calls = start_supervised!({Agent, fn -> [] end})
 
     secret_scan_runner = fn _args, _branch_context ->
@@ -389,21 +433,132 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
       Agent.update(ordered_calls, fn calls -> [:commit_probe | calls] end)
     end
 
+    diff_size_runner = fn _args, _branch_context ->
+      Agent.update(ordered_calls, fn calls -> [:diff_size | calls] end)
+      {:ok, %{metrics: %{files_changed: 1, lines_added: 9, lines_deleted: 4}}}
+    end
+
     {:ok, result} =
       CommitAndPR.execute(
         nil,
         %{workflow_name: "implement_task", run_id: "run-secret-order-01", workspace_clean: true},
         branch_setup_runner: fn _branch_context -> :ok end,
         secret_scan_runner: secret_scan_runner,
+        diff_size_runner: diff_size_runner,
         commit_probe: commit_probe
       )
 
     assert result.policy_checks.secret_scan.status == "passed"
     assert result.policy_checks.secret_scan.scan_status == "clean"
+    assert result.policy_checks.diff_size_threshold.status == "passed"
+    assert result.policy_checks.diff_size_threshold.decision == "within_threshold"
 
     assert ordered_calls
            |> Agent.get(&Enum.reverse(&1))
-           |> Enum.take(2) == [:secret_scan, :commit_probe]
+           |> Enum.take(3) == [:secret_scan, :diff_size, :commit_probe]
+  end
+
+  test "diff size threshold exceed blocks shipping with explicit threshold details" do
+    commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
+
+    commit_probe = fn _branch_context ->
+      Agent.update(commit_probe_calls, &(&1 + 1))
+    end
+
+    assert {:error, typed_error} =
+             CommitAndPR.execute(
+               nil,
+               %{
+                 workflow_name: "implement_task",
+                 run_id: "run-diff-block-01",
+                 workspace_clean: true,
+                 diff_metrics: %{files_changed: 8, lines_added: 180, lines_deleted: 40},
+                 workflow_policy: %{
+                   diff_size_threshold: %{max_changed_lines: 100, on_exceed: "block"}
+                 }
+               },
+               branch_setup_runner: fn _branch_context -> :ok end,
+               commit_probe: commit_probe
+             )
+
+    assert typed_error.error_type == "workflow_commit_and_pr_diff_size_policy_failed"
+    assert typed_error.operation == "validate_diff_size_threshold"
+    assert typed_error.reason_type == "diff_size_threshold_exceeded"
+    assert typed_error.blocked_stage == "commit_changes"
+    assert typed_error.blocked_actions == ["commit", "push", "create_pr"]
+    assert typed_error.halted_before_commit == true
+    assert typed_error.halted_before_push == true
+    assert typed_error.halted_before_pr == true
+    assert typed_error.detail =~ "exceeded workflow threshold 100"
+
+    assert %{
+             id: "diff_size_threshold",
+             status: "failed",
+             decision: "blocked",
+             threshold_exceeded: true,
+             manual_override_required: false
+           } = typed_error.policy_check
+
+    assert %{
+             source: "workflow_policy",
+             max_changed_lines: 100,
+             on_exceed: "block"
+           } = typed_error.policy_check.threshold_policy
+
+    assert typed_error.policy_check.metrics.total_lines_changed == 220
+
+    assert Enum.map(typed_error.policy_check.blocked_action_details, & &1.reason) ==
+             [
+               "diff_size_threshold_exceeded",
+               "diff_size_threshold_exceeded",
+               "diff_size_threshold_exceeded"
+             ]
+
+    assert Agent.get(commit_probe_calls, & &1) == 0
+  end
+
+  test "diff size threshold exceed can escalate to explicit approval override requirement" do
+    commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
+
+    commit_probe = fn _branch_context ->
+      Agent.update(commit_probe_calls, &(&1 + 1))
+    end
+
+    assert {:error, typed_error} =
+             CommitAndPR.execute(
+               nil,
+               %{
+                 workflow_name: "implement_task",
+                 run_id: "run-diff-escalate-01",
+                 workspace_clean: true,
+                 diff_metrics: %{files_changed: 5, lines_added: 110, lines_deleted: 20},
+                 project_policy: %{
+                   diff_size_threshold: %{max_changed_lines: 120, on_exceed: "escalate"}
+                 }
+               },
+               branch_setup_runner: fn _branch_context -> :ok end,
+               commit_probe: commit_probe
+             )
+
+    assert typed_error.error_type == "workflow_commit_and_pr_diff_size_policy_failed"
+    assert typed_error.operation == "validate_diff_size_threshold"
+    assert typed_error.reason_type == "approval_override_required"
+    assert typed_error.detail =~ "approval override is required"
+
+    assert %{
+             status: "failed",
+             decision: "approval_override_required",
+             threshold_exceeded: true,
+             manual_override_required: true
+           } = typed_error.policy_check
+
+    assert %{
+             source: "project_policy",
+             max_changed_lines: 120,
+             on_exceed: "require_approval_override"
+           } = typed_error.policy_check.threshold_policy
+
+    assert Agent.get(commit_probe_calls, & &1) == 0
   end
 
   test "secret scan violations block shipping with policy_violation and blocked action details" do
