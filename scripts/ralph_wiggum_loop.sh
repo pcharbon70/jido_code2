@@ -24,6 +24,7 @@ Options:
   --skip-precommit        Skip mix precommit gate (not recommended)
   --max-fix-attempts N    Max codex fix loops after precommit failure (default: 2)
   --include-completed     Do not skip stories already present in git log
+  --no-auto-include-deps  Do not auto-include unmet dependencies from the backlog
   --dry-run               Print selected stories and exit
   -h, --help              Show this help
 
@@ -57,6 +58,33 @@ assert_clean_tree() {
 story_committed() {
   local story_id="$1"
   git log --grep="$story_id" --format=%H -n 1 | grep -q .
+}
+
+story_in_records() {
+  local story_id="$1"
+  local record
+
+  for record in "${selected_stories[@]}"; do
+    if [ "${record%%|*}" = "$story_id" ]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+lookup_story_record() {
+  local story_id="$1"
+  local record
+
+  for record in "${story_catalog[@]}"; do
+    if [ "${record%%|*}" = "$story_id" ]; then
+      printf '%s\n' "$record"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 extract_story_block() {
@@ -219,6 +247,7 @@ DO_PUSH=1
 RUN_PRECOMMIT=1
 MAX_FIX_ATTEMPTS=2
 SKIP_COMPLETED=1
+AUTO_INCLUDE_DEPS=1
 DRY_RUN=0
 LOG_FILE="${LOG_FILE:-.ralph_wiggum_loop.log}"
 
@@ -274,6 +303,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --include-completed)
       SKIP_COMPLETED=0
+      shift
+      ;;
+    --no-auto-include-deps)
+      AUTO_INCLUDE_DEPS=0
       shift
       ;;
     --dry-run)
@@ -378,6 +411,49 @@ fi
 
 [ "${#selected_stories[@]}" -gt 0 ] || fail "No stories selected"
 
+if [ "$AUTO_INCLUDE_DEPS" -eq 1 ]; then
+  changed=1
+
+  while [ "$changed" -eq 1 ]; do
+    changed=0
+
+    for record in "${selected_stories[@]}"; do
+      story_id="${record%%|*}"
+      remainder="${record#*|}"
+      story_file="${remainder%%|*}"
+
+      deps_line="$(extract_dependencies_line "$story_id" "$story_file")"
+
+      if [ -z "$deps_line" ] || [ "$deps_line" = "none" ]; then
+        continue
+      fi
+
+      IFS=',' read -r -a deps <<< "$deps_line"
+      for dep in "${deps[@]}"; do
+        dep="$(printf '%s' "$dep" | xargs)"
+        [ -z "$dep" ] && continue
+
+        if story_committed "$dep"; then
+          continue
+        fi
+
+        if story_in_records "$dep"; then
+          continue
+        fi
+
+        dep_record="$(lookup_story_record "$dep" || true)"
+        if [ -z "$dep_record" ]; then
+          fail "Dependency $dep required by $story_id was not found in specs/stories"
+        fi
+
+        selected_stories+=("$dep_record")
+        log "Auto-including dependency $dep required by $story_id"
+        changed=1
+      done
+    done
+  done
+fi
+
 log "Repository: $REPO_ROOT"
 log "Remote/branch: $REMOTE_NAME/$TARGET_BRANCH"
 log "Selected stories: ${#selected_stories[@]}"
@@ -405,90 +481,118 @@ fi
 assert_clean_tree
 
 loop_count=0
-for record in "${selected_stories[@]}"; do
-  story_id="${record%%|*}"
-  remainder="${record#*|}"
-  story_file="${remainder%%|*}"
-  story_title="${remainder#*|}"
+pending_stories=("${selected_stories[@]}")
+pass=0
 
-  if [ "$SKIP_COMPLETED" -eq 1 ] && story_committed "$story_id"; then
-    log "Skipping $story_id (already in git history)"
-    continue
-  fi
+while [ "${#pending_stories[@]}" -gt 0 ]; do
+  pass=$((pass + 1))
+  progress_made=0
+  next_pending=()
+  blocked_details=()
 
-  assert_clean_tree
+  for record in "${pending_stories[@]}"; do
+    story_id="${record%%|*}"
+    remainder="${record#*|}"
+    story_file="${remainder%%|*}"
+    story_title="${remainder#*|}"
 
-  missing_deps=""
-  if ! missing_deps="$(validate_dependencies "$story_id" "$story_file")"; then
-    fail "Dependencies missing for $story_id: $missing_deps"
-  fi
-
-  loop_count=$((loop_count + 1))
-  log "Loop ${loop_count}: ${story_id} - ${story_title}"
-
-  story_block="$(extract_story_block "$story_id" "$story_file")"
-  [ -n "$story_block" ] || fail "Could not extract story block for $story_id from $story_file"
-
-  trace_row="$(rg --no-heading "^\\| .*${story_id}.*\\|" specs/stories/00_traceability_matrix.md || true)"
-  [ -n "$trace_row" ] || fail "Traceability row not found for $story_id"
-
-  prompt_file="$(mktemp "${TMPDIR:-/tmp}/ralph-story-prompt.XXXXXX")"
-  {
-    echo "Implement exactly one backlog story in this repository."
-    echo
-    echo "Story ID: ${story_id}"
-    echo "Story title: ${story_title}"
-    echo "Story file: ${story_file}"
-    echo
-    echo "Traceability row:"
-    echo "${trace_row}"
-    echo
-    echo "Story card:"
-    echo '```markdown'
-    printf '%s\n' "$story_block"
-    echo '```'
-    echo
-    echo "Execution rules:"
-    echo "- Follow AGENTS.md and repository conventions."
-    echo "- Implement only this story."
-    echo "- Do not work on other stories."
-    echo "- Add or update tests for acceptance criteria."
-    echo "- Run mix precommit and leave it passing."
-    echo "- Do not commit."
-    echo "- Do not push."
-    echo "- Do not open a PR."
-    echo
-    echo "Final response format:"
-    echo "1) changed files"
-    echo "2) tests/commands executed"
-    echo "3) acceptance criteria coverage"
-    echo "4) blockers/assumptions"
-  } > "$prompt_file"
-
-  if ! run_codex_prompt "$prompt_file"; then
-    rm -f "$prompt_file"
-    fail "codex exec failed for $story_id"
-  fi
-  rm -f "$prompt_file"
-
-  if [ -z "$(git status --porcelain)" ]; then
-    fail "No changes detected after codex loop for $story_id"
-  fi
-
-  if [ "$RUN_PRECOMMIT" -eq 1 ]; then
-    if ! run_precommit_with_fix_loops "$story_id" "$story_title"; then
-      fail "mix precommit failed for $story_id"
+    if [ "$SKIP_COMPLETED" -eq 1 ] && story_committed "$story_id"; then
+      log "Skipping $story_id (already in git history)"
+      continue
     fi
+
+    assert_clean_tree
+
+    missing_deps=""
+    if ! missing_deps="$(validate_dependencies "$story_id" "$story_file")"; then
+      next_pending+=("$record")
+      blocked_details+=("${story_id}:${missing_deps}")
+      continue
+    fi
+
+    loop_count=$((loop_count + 1))
+    progress_made=1
+    log "Loop ${loop_count}: ${story_id} - ${story_title}"
+
+    story_block="$(extract_story_block "$story_id" "$story_file")"
+    [ -n "$story_block" ] || fail "Could not extract story block for $story_id from $story_file"
+
+    trace_row="$(rg --no-heading "^\\| .*${story_id}.*\\|" specs/stories/00_traceability_matrix.md || true)"
+    [ -n "$trace_row" ] || fail "Traceability row not found for $story_id"
+
+    prompt_file="$(mktemp "${TMPDIR:-/tmp}/ralph-story-prompt.XXXXXX")"
+    {
+      echo "Implement exactly one backlog story in this repository."
+      echo
+      echo "Story ID: ${story_id}"
+      echo "Story title: ${story_title}"
+      echo "Story file: ${story_file}"
+      echo
+      echo "Traceability row:"
+      echo "${trace_row}"
+      echo
+      echo "Story card:"
+      echo '```markdown'
+      printf '%s\n' "$story_block"
+      echo '```'
+      echo
+      echo "Execution rules:"
+      echo "- Follow AGENTS.md and repository conventions."
+      echo "- Implement only this story."
+      echo "- Do not work on other stories."
+      echo "- Add or update tests for acceptance criteria."
+      echo "- Run mix precommit and leave it passing."
+      echo "- Do not commit."
+      echo "- Do not push."
+      echo "- Do not open a PR."
+      echo
+      echo "Final response format:"
+      echo "1) changed files"
+      echo "2) tests/commands executed"
+      echo "3) acceptance criteria coverage"
+      echo "4) blockers/assumptions"
+    } > "$prompt_file"
+
+    if ! run_codex_prompt "$prompt_file"; then
+      rm -f "$prompt_file"
+      fail "codex exec failed for $story_id"
+    fi
+    rm -f "$prompt_file"
+
+    if [ -z "$(git status --porcelain)" ]; then
+      fail "No changes detected after codex loop for $story_id"
+    fi
+
+    if [ "$RUN_PRECOMMIT" -eq 1 ]; then
+      if ! run_precommit_with_fix_loops "$story_id" "$story_title"; then
+        fail "mix precommit failed for $story_id"
+      fi
+    fi
+
+    git add -A
+    git commit -m "feat(story): ${story_id} ${story_title}" -m "Story-File: ${story_file}"
+
+    if [ "$DO_PUSH" -eq 1 ]; then
+      git push "$REMOTE_NAME" "HEAD:${TARGET_BRANCH}"
+    fi
+
+    log "Completed ${story_id}"
+  done
+
+  if [ "${#next_pending[@]}" -eq 0 ]; then
+    break
   fi
 
-  git add -A
-  git commit -m "feat(story): ${story_id} ${story_title}" -m "Story-File: ${story_file}"
-
-  if [ "$DO_PUSH" -eq 1 ]; then
-    git push "$REMOTE_NAME" "HEAD:${TARGET_BRANCH}"
+  if [ "$progress_made" -eq 0 ]; then
+    log "Unresolved dependency set after pass ${pass}:"
+    for detail in "${blocked_details[@]}"; do
+      log "  ${detail}"
+    done
+    fail "No progress can be made due to missing dependencies"
   fi
 
-  log "Completed ${story_id}"
+  log "Pass ${pass} deferred ${#next_pending[@]} story(ies) for dependency satisfaction; retrying deferred set"
+  pending_stories=("${next_pending[@]}")
 done
 
 log "Story loops complete."
