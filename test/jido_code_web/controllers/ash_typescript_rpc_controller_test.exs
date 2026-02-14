@@ -10,6 +10,7 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
   @api_key_audit_event [:jido_code, :rpc, :api_key, :used]
   @run_action_params %{"action" => "rpc_list_repositories", "fields" => ["id"]}
   @invalid_validate_action_params %{"fields" => ["id"]}
+  @unknown_run_action_params %{"action" => "rpc_unknown_action", "fields" => ["id"]}
   @unknown_validate_action_params %{"action" => "rpc_unknown_action", "fields" => ["id"]}
 
   test "valid bearer token executes rpc action and returns auth mode metadata", %{conn: conn} do
@@ -136,6 +137,60 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
     assert error["type"] == "contract_mismatch"
     assert error["details"]["reason"] == "unknown_action"
     assert error["details"]["original_type"] == "action_not_found"
+  end
+
+  test "run endpoint returns typed payload with execution identifiers across repeated calls", %{
+    conn: conn
+  } do
+    first_response =
+      conn
+      |> post(~p"/rpc/run", @run_action_params)
+      |> json_response(200)
+
+    second_response =
+      conn
+      |> recycle()
+      |> post(~p"/rpc/run", @run_action_params)
+      |> json_response(200)
+
+    assert first_response["success"] == true
+    assert second_response["success"] == true
+    assert is_list(first_response["data"])
+    assert first_response["data"] == second_response["data"]
+    assert get_in(first_response, ["meta", "actor_auth_mode"]) == "anonymous"
+    assert get_in(first_response, ["meta", "action_identifier"]) == "rpc_list_repositories"
+    assert get_in(second_response, ["meta", "action_identifier"]) == "rpc_list_repositories"
+
+    first_request_identifier = get_in(first_response, ["meta", "request_identifier"])
+    second_request_identifier = get_in(second_response, ["meta", "request_identifier"])
+    assert is_binary(first_request_identifier) and first_request_identifier != ""
+    assert is_binary(second_request_identifier) and second_request_identifier != ""
+  end
+
+  test "run endpoint returns typed contract mismatch taxonomy when action is unknown", %{
+    conn: conn
+  } do
+    response =
+      conn
+      |> post(~p"/rpc/run", @unknown_run_action_params)
+      |> json_response(200)
+
+    assert response["success"] == false
+    assert get_in(response, ["meta", "actor_auth_mode"]) == "anonymous"
+    assert get_in(response, ["meta", "action_identifier"]) == "rpc_unknown_action"
+    refute Map.has_key?(response, "data")
+
+    request_identifier = get_in(response, ["meta", "request_identifier"])
+    assert is_binary(request_identifier) and request_identifier != ""
+
+    [error | _] = response["errors"]
+    assert error["type"] == "contract_mismatch"
+    assert error["details"]["reason"] == "unknown_action"
+    assert error["details"]["original_type"] == "action_not_found"
+    assert is_binary(error["message"])
+    assert is_map(error["details"])
+    assert is_list(error["fields"])
+    assert is_list(error["path"])
   end
 
   test "valid api key executes rpc action through run endpoint", %{conn: conn} do

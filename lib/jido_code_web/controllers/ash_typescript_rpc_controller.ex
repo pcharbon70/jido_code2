@@ -10,14 +10,19 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
   @api_key_prefix "agentjido_"
 
   def run(conn, params) do
-    execute_rpc(conn, params, &AshTypescript.Rpc.run_action(:jido_code, &1, &2))
+    execute_rpc(conn, params, fn request_conn, request_params ->
+      :jido_code
+      |> AshTypescript.Rpc.run_action(request_conn, request_params)
+      |> normalize_error_response()
+      |> attach_execution_identifiers(request_conn, request_params)
+    end)
   end
 
   def validate(conn, params) do
     execute_rpc(conn, params, fn request_conn, request_params ->
       :jido_code
       |> AshTypescript.Rpc.validate_action(request_conn, request_params)
-      |> normalize_validation_response()
+      |> normalize_error_response()
     end)
   end
 
@@ -242,21 +247,21 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
     end)
   end
 
-  defp normalize_validation_response(result) when is_map(result) do
+  defp normalize_error_response(result) when is_map(result) do
     success = map_get(result, :success, "success")
     errors = map_get(result, :errors, "errors")
 
     if success == false and is_list(errors) do
-      normalized_errors = Enum.map(errors, &normalize_validation_error/1)
+      normalized_errors = Enum.map(errors, &normalize_rpc_error/1)
       put_map_value(result, :errors, "errors", normalized_errors)
     else
       result
     end
   end
 
-  defp normalize_validation_response(result), do: result
+  defp normalize_error_response(result), do: result
 
-  defp normalize_validation_error(error) when is_map(error) do
+  defp normalize_rpc_error(error) when is_map(error) do
     case map_get(error, :type, "type") do
       "action_not_found" ->
         action_name =
@@ -309,7 +314,48 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
     end
   end
 
-  defp normalize_validation_error(error), do: error
+  defp normalize_rpc_error(error), do: error
+
+  defp attach_execution_identifiers(result, conn, params) when is_map(result) do
+    execution_identifiers =
+      %{}
+      |> maybe_put_identifier(
+        :action_identifier,
+        params |> map_get(:action, "action") |> normalize_optional_string()
+      )
+      |> maybe_put_identifier(
+        :request_identifier,
+        conn |> Plug.Conn.get_resp_header("x-request-id") |> List.first() |> normalize_optional_string()
+      )
+
+    if map_size(execution_identifiers) == 0 do
+      result
+    else
+      meta_key = map_key(result, :meta, "meta")
+
+      Map.update(result, meta_key, execution_identifiers, fn meta ->
+        if is_map(meta), do: Map.merge(meta, execution_identifiers), else: execution_identifiers
+      end)
+    end
+  end
+
+  defp attach_execution_identifiers(result, _conn, _params), do: result
+
+  defp maybe_put_identifier(map, _key, nil), do: map
+  defp maybe_put_identifier(map, key, value), do: Map.put(map, key, value)
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized_value -> normalized_value
+    end
+  end
+
+  defp normalize_optional_string(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_optional_string()
+
+  defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_optional_string(_value), do: nil
 
   defp map_get(map, atom_key, string_key, default \\ nil) when is_map(map) do
     cond do
