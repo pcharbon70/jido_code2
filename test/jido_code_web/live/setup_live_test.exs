@@ -32,6 +32,9 @@ defmodule JidoCodeWeb.SetupLiveTest do
     original_project_importer =
       Application.get_env(:jido_code, :setup_project_importer, :__missing__)
 
+    original_repository_fetcher =
+      Application.get_env(:jido_code, :setup_github_repository_fetcher, :__missing__)
+
     original_runtime_mode = Application.get_env(:jido_code, :runtime_mode, :__missing__)
 
     original_timeout =
@@ -46,6 +49,7 @@ defmodule JidoCodeWeb.SetupLiveTest do
       restore_env(:setup_github_credential_checker, original_github_checker)
       restore_env(:setup_webhook_simulation_checker, original_webhook_simulation_checker)
       restore_env(:setup_project_importer, original_project_importer)
+      restore_env(:setup_github_repository_fetcher, original_repository_fetcher)
       restore_env(:setup_prerequisite_timeout_ms, original_timeout)
       restore_env(:runtime_mode, original_runtime_mode)
     end)
@@ -57,6 +61,7 @@ defmodule JidoCodeWeb.SetupLiveTest do
     Application.delete_env(:jido_code, :setup_github_credential_checker)
     Application.delete_env(:jido_code, :setup_webhook_simulation_checker)
     Application.delete_env(:jido_code, :setup_project_importer)
+    Application.delete_env(:jido_code, :setup_github_repository_fetcher)
     Application.put_env(:jido_code, :runtime_mode, :test)
 
     Application.put_env(:jido_code, :system_config, %{
@@ -1259,6 +1264,99 @@ defmodule JidoCodeWeb.SetupLiveTest do
     persisted_config = Application.get_env(:jido_code, :system_config)
     assert Map.fetch!(persisted_config, :onboarding_step) == 6
     refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "6")
+  end
+
+  test "step 7 lists only accessible repositories and renders stable identifiers for import selection",
+       %{conn: conn} do
+    onboarding_state =
+      onboarding_state_through_step_6()
+      |> put_in(["4", "github_credentials", "paths"], [
+        %{
+          "path" => "github_app",
+          "status" => "ready",
+          "repository_access" => "confirmed",
+          "repositories" => [
+            %{"id" => "repo_200", "full_name" => "owner/repo-two"},
+            "owner/repo-one"
+          ]
+        },
+        %{
+          "path" => "pat",
+          "status" => "invalid",
+          "repository_access" => "unconfirmed",
+          "repositories" => ["owner/private-repo"]
+        }
+      ])
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 7,
+      onboarding_state: onboarding_state
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-project-repository-listing-status", "Ready")
+    assert has_element?(view, "#setup-project-repository-option-owner-repo-one", "owner/repo-one")
+    assert has_element?(view, "#setup-project-repository-option-owner-repo-two", "owner/repo-two")
+    refute has_element?(view, "#setup-project-repository-option-owner-private-repo")
+
+    assert has_element?(
+             view,
+             "#setup-project-repository-stable-id-owner-repo-one",
+             "repo:owner/repo-one"
+           )
+
+    assert has_element?(view, "#setup-project-repository-stable-id-owner-repo-two", "repo_200")
+    assert has_element?(view, "#setup-project-repository-select option[value=\"owner/repo-one\"]")
+    assert has_element?(view, "#setup-project-repository-select option[value=\"owner/repo-two\"]")
+  end
+
+  test "step 7 repository refresh surfaces typed GitHub fetch errors and preserves prior listing state",
+       %{conn: conn} do
+    test_pid = self()
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 7,
+      onboarding_state: onboarding_state_through_step_6()
+    })
+
+    Application.put_env(:jido_code, :system_config_saver, fn _config ->
+      send(test_pid, :unexpected_save)
+      {:ok, %{onboarding_completed: false, onboarding_step: 8, onboarding_state: %{}}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-project-repository-listing-status", "Ready")
+    assert has_element?(view, "#setup-project-repository-option-owner-repo-one", "owner/repo-one")
+
+    Application.put_env(:jido_code, :setup_github_repository_fetcher, fn _context ->
+      {:error, {"github_repository_fetch_timeout", "GitHub API request timed out while listing repositories."}}
+    end)
+
+    view
+    |> element("#setup-project-repository-refresh")
+    |> render_click()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 7")
+    assert has_element?(view, "#setup-project-repository-listing-status", "Blocked")
+
+    assert has_element?(
+             view,
+             "#setup-project-repository-listing-error-type",
+             "github_repository_fetch_timeout"
+           )
+
+    assert has_element?(view, "#setup-save-error", "github_repository_fetch_timeout")
+    assert has_element?(view, "#setup-save-error", "state was preserved for retry")
+    assert has_element?(view, "#setup-project-repository-option-owner-repo-one", "owner/repo-one")
+    refute_received :unexpected_save
+
+    persisted_config = Application.get_env(:jido_code, :system_config)
+    assert Map.fetch!(persisted_config, :onboarding_step) == 7
+    refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "7")
   end
 
   test "step 7 imports the selected repository and step 8 completes onboarding with dashboard next actions",

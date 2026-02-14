@@ -5,6 +5,7 @@ defmodule JidoCodeWeb.SetupLive do
   alias JidoCode.Accounts.User
   alias JidoCode.Setup.EnvironmentDefaults
   alias JidoCode.Setup.GitHubCredentialChecks
+  alias JidoCode.Setup.GitHubRepositoryListing
   alias JidoCode.Setup.OwnerBootstrap
   alias JidoCode.Setup.OwnerRecovery
   alias JidoCode.Setup.ProjectImport
@@ -64,7 +65,13 @@ defmodule JidoCodeWeb.SetupLive do
       )
 
     project_import_report = resolve_project_import_report(onboarding_step, onboarding_state)
-    available_repositories = ProjectImport.available_repositories(onboarding_state)
+
+    repository_listing_report =
+      resolve_repository_listing_report(onboarding_step, onboarding_state)
+
+    available_repositories =
+      resolve_available_repositories(repository_listing_report, onboarding_state)
+
     owner_bootstrap = resolve_owner_bootstrap(onboarding_step)
 
     {:ok,
@@ -79,6 +86,7 @@ defmodule JidoCodeWeb.SetupLive do
      |> assign(:webhook_simulation_report, webhook_simulation_report)
      |> assign(:environment_defaults_report, environment_defaults_report)
      |> assign(:project_import_report, project_import_report)
+     |> assign(:repository_listing_report, repository_listing_report)
      |> assign(:available_repositories, available_repositories)
      |> assign(:owner_bootstrap, owner_bootstrap)
      |> assign(:save_error, owner_bootstrap_error(owner_bootstrap))
@@ -496,6 +504,54 @@ defmodule JidoCodeWeb.SetupLive do
             Select one repository and import baseline metadata before onboarding can complete.
           </p>
 
+          <div id="setup-project-repository-listing" class="rounded-lg border border-base-300 bg-base-100 p-3">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p class="font-medium">Accessible repositories for import</p>
+              <button
+                id="setup-project-repository-refresh"
+                type="button"
+                phx-click="refresh_repository_listing"
+                class="btn btn-sm btn-outline"
+              >
+                Refresh repositories
+              </button>
+            </div>
+            <p
+              :if={@repository_listing_report}
+              id="setup-project-repository-listing-checked-at"
+              class="mt-2 text-sm text-base-content/70"
+            >
+              Last fetched: {format_checked_at(@repository_listing_report.checked_at)}
+            </p>
+            <p
+              :if={@repository_listing_report}
+              id="setup-project-repository-listing-status"
+              class="mt-1 text-sm text-base-content/80"
+            >
+              Listing status:
+              <span class={[
+                "badge ml-1",
+                repository_listing_status_class(@repository_listing_report.status)
+              ]}>
+                {repository_listing_status_label(@repository_listing_report.status)}
+              </span>
+            </p>
+            <p
+              :if={@repository_listing_report && @repository_listing_report.error_type}
+              id="setup-project-repository-listing-error-type"
+              class="mt-1 text-sm text-error"
+            >
+              GitHub fetch error type: {@repository_listing_report.error_type}
+            </p>
+            <p
+              :if={@repository_listing_report && @repository_listing_report.status != :ready}
+              id="setup-project-repository-listing-remediation"
+              class="mt-1 text-sm text-warning"
+            >
+              {@repository_listing_report.remediation}
+            </p>
+          </div>
+
           <div
             :if={!Enum.empty?(@available_repositories)}
             id="setup-project-repository-options"
@@ -504,10 +560,16 @@ defmodule JidoCodeWeb.SetupLive do
             <p class="font-medium">Validated repository access</p>
             <ul class="mt-2 space-y-1 text-sm text-base-content/80">
               <li
-                :for={repository <- @available_repositories}
-                id={"setup-project-repository-option-#{repository_dom_id(repository)}"}
+                :for={repository <- repository_listing_entries(@repository_listing_report, @available_repositories)}
+                id={"setup-project-repository-option-#{repository_dom_id(repository.full_name)}"}
               >
-                {repository}
+                <p>{repository.full_name}</p>
+                <p
+                  id={"setup-project-repository-stable-id-#{repository_dom_id(repository.full_name)}"}
+                  class="font-mono text-xs text-base-content/70"
+                >
+                  Stable ID: {repository.id}
+                </p>
               </li>
             </ul>
           </div>
@@ -850,6 +912,38 @@ defmodule JidoCodeWeb.SetupLive do
 
   def handle_event("recover_owner", _params, socket) do
     {:noreply, assign(socket, :save_error, @owner_recovery_validation_error)}
+  end
+
+  def handle_event(
+        "refresh_repository_listing",
+        _params,
+        %{assigns: %{onboarding_step: 7}} = socket
+      ) do
+    repository_listing_report =
+      GitHubRepositoryListing.run(
+        socket.assigns.repository_listing_report,
+        socket.assigns.onboarding_state
+      )
+
+    available_repositories =
+      resolve_available_repositories(repository_listing_report, socket.assigns.onboarding_state)
+
+    save_error =
+      if GitHubRepositoryListing.blocked?(repository_listing_report) do
+        repository_listing_block_message(repository_listing_report)
+      else
+        nil
+      end
+
+    {:noreply,
+     socket
+     |> assign(:repository_listing_report, repository_listing_report)
+     |> assign(:available_repositories, available_repositories)
+     |> assign(:save_error, save_error)}
+  end
+
+  def handle_event("refresh_repository_listing", _params, socket) do
+    {:noreply, socket}
   end
 
   def handle_event("save_step", %{"step" => step_params}, socket) when is_map(step_params) do
@@ -1242,6 +1336,27 @@ defmodule JidoCodeWeb.SetupLive do
     end
   end
 
+  defp resolve_repository_listing_report(onboarding_step, onboarding_state) do
+    if onboarding_step == 7 do
+      previous_repository_listing_report =
+        onboarding_state
+        |> fetch_step_state(7)
+        |> Map.get("repository_listing")
+        |> GitHubRepositoryListing.from_state()
+
+      GitHubRepositoryListing.run(previous_repository_listing_report, onboarding_state)
+    else
+      nil
+    end
+  end
+
+  defp resolve_available_repositories(repository_listing_report, onboarding_state) do
+    case GitHubRepositoryListing.repository_full_names(repository_listing_report) do
+      [] -> ProjectImport.available_repositories(onboarding_state)
+      repository_full_names -> repository_full_names
+    end
+  end
+
   defp resolve_environment_defaults_report(
          onboarding_step,
          onboarding_state,
@@ -1578,6 +1693,14 @@ defmodule JidoCodeWeb.SetupLive do
     )
   end
 
+  defp repository_listing_block_message(report) do
+    typed_error = report.error_type || "github_repository_fetch_failed"
+
+    String.trim(
+      "GitHub repository listing failed with typed error #{typed_error}. Step 7 state was preserved for retry. #{report.detail} #{report.remediation}"
+    )
+  end
+
   defp project_import_block_message(report) do
     typed_error = report.error_type || "project_import_unknown_error"
 
@@ -1714,6 +1837,14 @@ defmodule JidoCodeWeb.SetupLive do
   defp webhook_check_status_class(:ready), do: "badge-success"
   defp webhook_check_status_class(:failed), do: "badge-error"
 
+  defp repository_listing_status_label(:ready), do: "Ready"
+  defp repository_listing_status_label(:blocked), do: "Blocked"
+  defp repository_listing_status_label(_status), do: "Unknown"
+
+  defp repository_listing_status_class(:ready), do: "badge-success"
+  defp repository_listing_status_class(:blocked), do: "badge-error"
+  defp repository_listing_status_class(_status), do: "badge-warning"
+
   defp project_import_status_label(:ready), do: "Ready"
   defp project_import_status_label(:blocked), do: "Blocked"
   defp project_import_status_label(_status), do: "Unknown"
@@ -1774,6 +1905,12 @@ defmodule JidoCodeWeb.SetupLive do
   defp assign_config_state(socket, %SystemConfig{} = config) do
     owner_bootstrap = resolve_owner_bootstrap(config.onboarding_step)
 
+    repository_listing_report =
+      resolve_repository_listing_report(config.onboarding_step, config.onboarding_state)
+
+    available_repositories =
+      resolve_available_repositories(repository_listing_report, config.onboarding_state)
+
     socket
     |> assign(:onboarding_step, config.onboarding_step)
     |> assign(:onboarding_state, config.onboarding_state)
@@ -1808,10 +1945,8 @@ defmodule JidoCodeWeb.SetupLive do
       :project_import_report,
       resolve_project_import_report(config.onboarding_step, config.onboarding_state)
     )
-    |> assign(
-      :available_repositories,
-      ProjectImport.available_repositories(config.onboarding_state)
-    )
+    |> assign(:repository_listing_report, repository_listing_report)
+    |> assign(:available_repositories, available_repositories)
     |> assign(:owner_bootstrap, owner_bootstrap)
     |> assign_owner_form(config.onboarding_step, config.onboarding_state, owner_bootstrap)
     |> assign_recovery_form(config.onboarding_step, config.onboarding_state, owner_bootstrap)
@@ -1887,8 +2022,52 @@ defmodule JidoCodeWeb.SetupLive do
     "#{path}?#{query}"
   end
 
+  defp repository_listing_entries(repository_listing_report, available_repositories) do
+    repository_options =
+      case GitHubRepositoryListing.repository_options(repository_listing_report) do
+        [] ->
+          Enum.map(available_repositories || [], fn repository ->
+            %{
+              full_name: repository,
+              id: repository_fallback_stable_id(repository)
+            }
+          end)
+
+        repositories ->
+          Enum.map(repositories, fn repository ->
+            full_name = Map.get(repository, :full_name, Map.get(repository, "full_name"))
+
+            %{
+              full_name: full_name,
+              id:
+                Map.get(repository, :id, Map.get(repository, "id")) ||
+                  repository_fallback_stable_id(full_name)
+            }
+          end)
+      end
+
+    repository_options
+    |> Enum.filter(fn repository ->
+      is_binary(repository.full_name) and String.trim(repository.full_name) != ""
+    end)
+    |> Enum.sort_by(fn repository -> {repository.full_name, repository.id} end)
+  end
+
+  defp repository_fallback_stable_id(repository) when is_binary(repository) do
+    repository
+    |> String.trim()
+    |> case do
+      "" -> "repo:unknown"
+      normalized_repository -> "repo:#{normalized_repository}"
+    end
+  end
+
+  defp repository_fallback_stable_id(_repository), do: "repo:unknown"
+
   defp repository_select_options(repositories) when is_list(repositories) do
-    Enum.map(repositories, fn repository -> {repository, repository} end)
+    repositories
+    |> Enum.sort()
+    |> Enum.map(fn repository -> {repository, repository} end)
   end
 
   defp repository_select_options(_repositories), do: []

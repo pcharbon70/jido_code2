@@ -82,6 +82,7 @@ defmodule JidoCode.Setup.ProjectImport do
       if path_status == :ready, do: repositories, else: []
     end)
     |> Enum.uniq()
+    |> Enum.sort()
   end
 
   def available_repositories(_onboarding_state), do: []
