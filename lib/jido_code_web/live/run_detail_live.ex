@@ -24,7 +24,10 @@ defmodule JidoCodeWeb.RunDetailLive do
 
   @impl true
   def handle_event("approve_run", _params, %{assigns: %{run: %WorkflowRun{} = run}} = socket) do
-    case WorkflowRun.approve(run, %{actor: approving_actor(socket), current_step: "resume_execution"}) do
+    case WorkflowRun.approve(run, %{
+           actor: approving_actor(socket),
+           current_step: "resume_execution"
+         }) do
       {:ok, %WorkflowRun{} = approved_run} ->
         {:noreply,
          socket
@@ -499,6 +502,9 @@ defmodule JidoCodeWeb.RunDetailLive do
 
   defp normalize_optional_string(value) when is_atom(value),
     do: value |> Atom.to_string() |> normalize_optional_string()
+
+  defp normalize_optional_string(%Ash.CiString{} = value),
+    do: value |> to_string() |> normalize_optional_string()
 
   defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_optional_string(value) when is_float(value), do: :erlang.float_to_binary(value)
