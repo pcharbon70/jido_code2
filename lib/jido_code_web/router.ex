@@ -56,6 +56,7 @@ defmodule JidoCodeWeb.Router do
       live("/workflows", WorkflowsLive, :index)
       live("/projects", ProjectInventoryLive, :index)
       live("/projects/:id", ProjectDetailLive, :show)
+      live("/projects/:id/runs/:run_id", RunDetailLive, :show)
       live("/settings", SettingsLive, :index)
       live("/settings/:tab", SettingsLive, :index)
 

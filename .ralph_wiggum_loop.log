@@ -55756,3 +55756,1549 @@ config :ash, :missed_notifications, :raise
 .
 Finished in 5.8 seconds (1.2s async, 4.6s sync)
 173 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `config/config.exs`
+- `lib/jido_code/orchestration.ex`
+- `lib/jido_code/orchestration/workflow_run.ex`
+- `lib/jido_code_web/router.ex`
+- `lib/jido_code_web/live/run_detail_live.ex`
+- `priv/repo/migrations/20260214224500_add_workflow_runs_resource.exs`
+- `priv/resource_snapshots/repo/workflow_runs/20260214224500.json`
+- `test/jido_code/orchestration/workflow_run_test.exs`
+- `test/jido_code_web/live/run_detail_live_test.exs`
+
+2) tests/commands executed
+- `mix test test/jido_code/orchestration/workflow_run_test.exs test/jido_code_web/live/run_detail_live_test.exs` (pass)
+- `mix compile --warnings-as-errors` (pass)
+- `MIX_OS_CONCURRENCY_LOCK=0 mix deps.unlock --unused` (pass)
+- `mix test` (pass; full suite)
+- `MIX_OS_CONCURRENCY_LOCK=0 mix precommit` (fails in this sandbox due Mix PubSub TCP socket `:eperm`)
+- `mix format --dot-formatter /tmp/simple_formatter.exs ...` on changed files (pass; used as workaround because default formatter task requires PubSub in this environment)
+
+3) acceptance criteria coverage
+- AC1 (allowed lifecycle transitions): implemented in `lib/jido_code/orchestration/workflow_run.ex` via guarded `transition_status` action and allowed transition map for `pending/running/awaiting_approval/completed/failed/cancelled`; validated in `test/jido_code/orchestration/workflow_run_test.exs`.
+- AC2 (persist transition timestamps + current step context): each transition appends a persisted `status_transitions` entry with `to_status`, `from_status`, `current_step`, `transitioned_at`; timeline rendering reads that persisted history in `lib/jido_code_web/live/run_detail_live.ex`; verified in both new tests.
+- AC3 (invalid transitions rejected, state unchanged): invalid transition returns error and persisted run remains unchanged (status/history/completion fields) in `test/jido_code/orchestration/workflow_run_test.exs`.
+
+4) blockers/assumptions
+- Blocker: `mix precommit` cannot complete in this environment because Mix PubSub tries to open a TCP socket and gets `:eperm`. I ran and passed equivalent checks (`compile`, `deps.unlock`, `test`) and formatted changed files with a custom dot-formatter workaround.
+- Assumption: lifecycle persistence is currently implemented at the `WorkflowRun` resource/API and run-detail route level; existing kickoff flows were not additionally wired in this story to auto-create/transition run records.
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 114539, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+..........................................10:26:38.777 request_id=GJQpsi8rHZmmww4AACvE [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+...10:26:38.856 request_id=GJQpsjWVLUbnLuAAACzE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.RunDetailLive reason=owner_session_present
+10:26:38.951 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.RunDetailLive reason=owner_session_present
+.10:26:38.958 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:pubsub-redaction-failure-1762 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=forced_redaction_failure
+.........**..10:26:39.213 request_id=GJQpsktu9b0x2u4AAARm [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectInventoryLive reason=owner_session_present
+10:26:39.236 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectInventoryLive reason=owner_session_present
+.10:26:39.280 request_id=GJQpsk9uHKnbUNwAAC4E [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectInventoryLive reason=owner_session_present
+10:26:39.286 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectInventoryLive reason=owner_session_present
+.10:26:39.350 request_id=GJQpslNVOcVAIowAAAyF [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectInventoryLive reason=owner_session_present
+10:26:39.355 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectInventoryLive reason=owner_session_present
+.10:26:39.379 request_id=GJQpslVDCM8dPIEAAA1F [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:39.401 request_id=GJQpslaIeNIdPIEAAA3F [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:39.410 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+...10:26:39.503 request_id=GJQpslxvF7xmbfQAAAgh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectDetailLive reason=owner_session_present
+10:26:39.518 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectDetailLive reason=owner_session_present
+.10:26:39.557 request_id=GJQpsl_cY3ZrYp4AAANn [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectDetailLive reason=owner_session_present
+10:26:39.575 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.ProjectDetailLive reason=owner_session_present
+....10:26:39.820 [warning] Quality checks failed for test-retry-936 (attempt 1/3), retrying...
+10:26:39.824 [warning] Quality checks failed for test-retry-936 (attempt 2/3), retrying...
+.10:26:39.872 [warning] Quality checks failed for test-fail-1256 (attempt 1/3), retrying...
+10:26:39.876 [warning] Quality checks failed for test-fail-1256 (attempt 2/3), retrying...
+10:26:39.881 [error] Quality checks failed for test-fail-1256 after 3 attempts, giving up
+10:26:39.882 [warning] Pull request failed for test-fail-1256 after 3 attempts
+.....10:26:40.124 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:forge-redaction-2120 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=redaction_exception
+10:26:40.126 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:forge-redaction-2120 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=redaction_exception
+10:26:40.127 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:forge-redaction-2120 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=redaction_exception
+.10:26:40.135 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:forge-redaction-2280 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=redaction_exception
+10:26:40.137 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:forge-redaction-2280 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=redaction_exception
+10:26:40.137 [error] security_audit=forge_pubsub_redaction_failed severity=high topic=forge:session:forge-redaction-2280 action=publication_blocked error_type=forge_channel_redaction_failed reason_type=redaction_exception
+.10:26:40.161 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/setup/provider_credential_secret_source_precedence_test.exs:60: JidoCode.Setup.ProviderCredentialSecretSourcePrecedenceTest."test default checker resolves from encrypted secret refs when env root secrets are absent"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.164 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/setup/provider_credential_secret_source_precedence_test.exs:60: JidoCode.Setup.ProviderCredentialSecretSourcePrecedenceTest."test default checker resolves from encrypted secret refs when env root secrets are absent"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+..10:26:40.178 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/setup/provider_credential_secret_source_precedence_test.exs:35: JidoCode.Setup.ProviderCredentialSecretSourcePrecedenceTest."test default checker prefers env root secrets over encrypted secret refs and surfaces non-sensitive diagnostics"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.181 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/setup/provider_credential_secret_source_precedence_test.exs:35: JidoCode.Setup.ProviderCredentialSecretSourcePrecedenceTest."test default checker prefers env root secrets over encrypted secret refs and surfaces non-sensitive diagnostics"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+...10:26:40.330 request_id=GJQpso4yyY0rLsIAAAdi [info] POST /api/github/webhooks
+10:26:40.332 request_id=GJQpso4yyY0rLsIAAAdi [info] github_webhook_delivery_persisted outcome=recorded delivery_id=delivery-1859 event=issues repo_id=5e9eb524-953f-4c4a-815f-169b2cb83c6a
+10:26:40.332 request_id=GJQpso4yyY0rLsIAAAdi [info] security_audit=github_webhook_signature_verified delivery_id=delivery-1859 event=issues
+10:26:40.332 request_id=GJQpso4yyY0rLsIAAAdi [info] Sent 202 in 2ms
+.....10:26:40.623 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:323: JidoCode.Security.SecretRefsTest."test rotate_provider_credential rolls references back when post-rotation validation fails"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.626 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:323: JidoCode.Security.SecretRefsTest."test rotate_provider_credential rolls references back when post-rotation validation fails"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:40.633 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:366: JidoCode.Security.SecretRefsTest."test rotate_provider_credential treats audit persistence failure as failed and keeps prior credential active"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.641 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:366: JidoCode.Security.SecretRefsTest."test rotate_provider_credential treats audit persistence failure as failed and keeps prior credential active"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:40.648 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:218: JidoCode.Security.SecretRefsTest."test persist_operational_secret treats audit persistence failure as failed and keeps prior state active"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.650 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:218: JidoCode.Security.SecretRefsTest."test persist_operational_secret treats audit persistence failure as failed and keeps prior state active"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.653 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:237: JidoCode.Security.SecretRefsTest."test persist_operational_secret treats audit persistence failure as failed and keeps prior state active"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:40.661 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:76: JidoCode.Security.SecretRefsTest."test secret lifecycle actions persist actor timestamp action target and outcome audit metadata"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.663 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:76: JidoCode.Security.SecretRefsTest."test secret lifecycle actions persist actor timestamp action target and outcome audit metadata"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.666 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:84: JidoCode.Security.SecretRefsTest."test secret lifecycle actions persist actor timestamp action target and outcome audit metadata"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.668 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:84: JidoCode.Security.SecretRefsTest."test secret lifecycle actions persist actor timestamp action target and outcome audit metadata"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.671 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.destroy.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:5086: Ash.Changeset.run_around_actions/2
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4764: anonymous fn/2 in Ash.Changeset.transaction_hooks/2
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4665: Ash.Changeset.with_hooks/3
+    (ash 3.16.0) lib/ash/actions/destroy/destroy.ex:182: Ash.Actions.Destroy.commit/3
+    (ash 3.16.0) lib/ash/actions/destroy/destroy.ex:124: Ash.Actions.Destroy.do_run/4
+    (ash 3.16.0) lib/ash/actions/destroy/destroy.ex:61: Ash.Actions.Destroy.run/4
+    (ash 3.16.0) lib/ash.ex:3791: Ash.destroy/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:649: JidoCode.Security.SecretRefs.destroy_secret_ref/1
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:540: anonymous fn/2 in JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:538: JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:425: JidoCode.Security.SecretRefs.revoke_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:92: JidoCode.Security.SecretRefsTest."test secret lifecycle actions persist actor timestamp action target and outcome audit metadata"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.673 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:542: anonymous fn/2 in JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:538: JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:425: JidoCode.Security.SecretRefs.revoke_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:92: JidoCode.Security.SecretRefsTest."test secret lifecycle actions persist actor timestamp action target and outcome audit metadata"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:40.683 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:281: JidoCode.Security.SecretRefsTest."test rotate_provider_credential swaps versions atomically while in-flight context keeps prior version"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.685 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:281: JidoCode.Security.SecretRefsTest."test rotate_provider_credential swaps versions atomically while in-flight context keeps prior version"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:40.695 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:145: JidoCode.Security.SecretRefsTest."test persist_operational_secret rotation increments key_version and refreshes last_rotated_at"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.698 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:145: JidoCode.Security.SecretRefsTest."test persist_operational_secret rotation increments key_version and refreshes last_rotated_at"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+..10:26:40.705 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:35: JidoCode.Security.SecretRefsTest."test persist_operational_secret stores encrypted ciphertext and metadata remains queryable"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:40.707 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code/security/secret_refs_test.exs:35: JidoCode.Security.SecretRefsTest."test persist_operational_secret stores encrypted ciphertext and metadata remains queryable"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:40.723 request_id=GJQpsqWD7IK0vHwAAAsh [warning] auth_sign_out_failed reason=:forced_invalidation_failure
+10:26:40.727 request_id=GJQpsqWshb20vHwAAAtB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:40.731 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:40.750 request_id=GJQpsqc6IAmxiJQAAAlj [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.SettingsLive reason=missing_or_expired_session
+.......10:26:41.062 [warning] security_audit=blocked_plaintext_secret_persistence resource=github_repo field=webhook_secret action=update actor_id=unknown actor_email=unknown
+..10:26:41.124 request_id=GJQpsr2Ox2py4CMAAAvj [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+.10:26:41.155 request_id=GJQpsr8s_DJSTdEAADjk [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+10:26:41.157 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+10:26:41.161 request_id=GJQpsr-J5N1STdEAADkk [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.167 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:41.199 request_id=GJQpssHVGWlakFIAAAxD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkflowsLive reason=owner_session_present
+10:26:41.210 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkflowsLive reason=owner_session_present
+.10:26:41.245 request_id=GJQpssSbXwD7jj8AAA1h [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkflowsLive reason=owner_session_present
+10:26:41.251 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkflowsLive reason=owner_session_present
+..10:26:41.316 request_id=GJQpssjt6uG7ImoAABCl [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+......10:26:41.332 [error] security_audit=forge_artifact_redaction_failed severity=high session_id=persist-redaction-failure-4390 action=persistence_blocked operation=record_execution_complete error_type=forge_channel_redaction_failed reason_type=forced_redaction_failure
+..10:26:41.345 [error] Postgrex.Protocol (#PID<0.3504.0> ("db_conn_12")) disconnected: ** (DBConnection.ConnectionError) owner #PID<0.5315.0> exited
+
+Client #PID<0.5317.0> (Task.Supervised) is still using a connection from owner at location:
+
+    (erts 16.1) :prim_inet.recv0/3
+    (postgrex 0.22.0) lib/postgrex/protocol.ex:3272: Postgrex.Protocol.msg_recv/4
+    (postgrex 0.22.0) lib/postgrex/protocol.ex:2967: Postgrex.Protocol.recv_transaction/4
+    (postgrex 0.22.0) lib/postgrex/protocol.ex:2253: Postgrex.Protocol.rebind_execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql/sandbox.ex:412: Ecto.Adapters.SQL.Sandbox.Connection.proxy/3
+    (db_connection 2.9.0) lib/db_connection/holder.ex:356: DBConnection.Holder.holder_apply/4
+    (db_connection 2.9.0) lib/db_connection.ex:1539: DBConnection.run_execute/5
+    (db_connection 2.9.0) lib/db_connection.ex:1587: DBConnection.run_with_retries/5
+    (db_connection 2.9.0) lib/db_connection.ex:848: DBConnection.execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3
+    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2
+    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2
+    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4
+    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5
+    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3
+
+The connection itself was checked out by #PID<0.5317.0> (Task.Supervised) at location:
+
+    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4
+    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3
+    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2
+    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2
+    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4
+    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5
+    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:89: anonymous fn/3 in Ash.Actions.Read.run/3
+    (ash 3.16.0) lib/ash/actions/read/read.ex:88: Ash.Actions.Read.run/3
+    (ash 3.16.0) lib/ash.ex:3022: Ash.do_read_one/3
+
+
+10:26:41.347 [error] Task #PID<0.5317.0> started from #PID<0.5314.0> terminating
+** (stop) exited in: DBConnection.Holder.checkout(#PID<0.5316.0>, [log: #Function<14.108441648/1 in Ecto.Adapters.SQL.with_log/4>, source: "forge_events", cache_statement: "ecto_insert_all_forge_events", cast_params: [%{status: :completed}, "019c5cf9-cf3e-7e19-a228-6a55cf4feb91", ~U[2026-02-14 16:26:41.342967Z], "019c5cf9-cf37-7ecd-aeed-3e0db2c37198", "session.execution_complete"], returning: [:id, :data, :timestamp, :session_id, :event_type, :exec_session_sequence], pool: DBConnection.Ownership, repo: JidoCode.Repo, timeout: 15000, pool_size: 20])
+    ** (EXIT) shutdown: %DBConnection.ConnectionError{message: "owner #PID<0.5315.0> exited\n\nClient #PID<0.5317.0> (Task.Supervised) is still using a connection from owner at location:\n\n    (erts 16.1) :prim_inet.recv0/3\n    (postgrex 0.22.0) lib/postgrex/protocol.ex:3272: Postgrex.Protocol.msg_recv/4\n    (postgrex 0.22.0) lib/postgrex/protocol.ex:2967: Postgrex.Protocol.recv_transaction/4\n    (postgrex 0.22.0) lib/postgrex/protocol.ex:2253: Postgrex.Protocol.rebind_execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql/sandbox.ex:412: Ecto.Adapters.SQL.Sandbox.Connection.proxy/3\n    (db_connection 2.9.0) lib/db_connection/holder.ex:356: DBConnection.Holder.holder_apply/4\n    (db_connection 2.9.0) lib/db_connection.ex:1539: DBConnection.run_execute/5\n    (db_connection 2.9.0) lib/db_connection.ex:1587: DBConnection.run_with_retries/5\n    (db_connection 2.9.0) lib/db_connection.ex:848: DBConnection.execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3\n    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2\n    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2\n    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4\n    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5\n    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3\n\nThe connection itself was checked out by #PID<0.5317.0> (Task.Supervised) at location:\n\n    (ecto_sql 3.13.4) lib/ecto/adapters/postgres/connection.ex:137: Ecto.Adapters.Postgres.Connection.execute/4\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1055: Ecto.Adapters.SQL.execute!/5\n    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1011: Ecto.Adapters.SQL.execute/6\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:241: Ecto.Repo.Queryable.execute/4\n    (ecto 3.13.5) lib/ecto/repo/queryable.ex:19: Ecto.Repo.Queryable.all/3\n    (ash_postgres 2.6.32) lib/data_layer.ex:845: anonymous fn/3 in AshPostgres.DataLayer.run_query/2\n    (ash_postgres 2.6.32) lib/data_layer.ex:844: AshPostgres.DataLayer.run_query/2\n    (ash 3.16.0) lib/ash/actions/read/read.ex:4174: Ash.Actions.Read.run_query/4\n    (ash 3.16.0) lib/ash/actions/read/read.ex:805: anonymous fn/9 in Ash.Actions.Read.do_read/5\n    (ash 3.16.0) lib/ash/actions/read/read.ex:1590: Ash.Actions.Read.maybe_in_transaction/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:435: Ash.Actions.Read.do_run/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:89: anonymous fn/3 in Ash.Actions.Read.run/3\n    (ash 3.16.0) lib/ash/actions/read/read.ex:88: Ash.Actions.Read.run/3\n    (ash 3.16.0) lib/ash.ex:3022: Ash.do_read_one/3\n\n", severity: :error, reason: :error}
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4782: anonymous fn/2 in Ash.Changeset.transaction_hooks/2
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4665: Ash.Changeset.with_hooks/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:321: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/forge/event_logger.ex:28: JidoCode.Forge.EventLogger.log_event/4
+    (elixir 1.19.2) lib/task/supervised.ex:105: Task.Supervised.invoke_mfa/2
+Function: #Function<1.109177536/0 in JidoCode.Forge.Persistence.log_event/3>
+    Args: []
+10:26:41.358 request_id=GJQpsssigyw5LXMAAAzj [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code_web/live/security_settings_live_test.exs:211: JidoCodeWeb.SecuritySettingsLiveTest."test security tab rotates provider credentials with before and after verification status"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.363 request_id=GJQpsssigyw5LXMAAAzj [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code_web/live/security_settings_live_test.exs:211: JidoCodeWeb.SecuritySettingsLiveTest."test security tab rotates provider credentials with before and after verification status"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.366 request_id=GJQpssvIJTE5LXMAAA1D [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.375 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:41.407 request_id=GJQpss4y4iqZgLcAADok [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.420 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:41.455 request_id=GJQpstEYYRX5ZUMAADsk [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.457 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:41.473 request_id=GJQpstICRjIiCs4AAA5D [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code_web/live/security_settings_live_test.exs:264: JidoCodeWeb.SecuritySettingsLiveTest."test security tab rolls provider credential references back when post-rotation validation fails"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.475 request_id=GJQpstICRjIiCs4AAA5D [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code_web/live/security_settings_live_test.exs:264: JidoCodeWeb.SecuritySettingsLiveTest."test security tab rolls provider credential references back when post-rotation validation fails"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.481 request_id=GJQpstKabQsiCs4AAA6j [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.492 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:41.551 request_id=GJQpstYwsti76LcAAA9h [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.570 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:41.604 request_id=GJQpstnyoT3Z2MEAABDB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.653 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.666 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    (jido_code 0.1.0) lib/jido_code_web/live/settings_live.ex:843: JidoCodeWeb.SettingsLive.handle_event/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:530: anonymous fn/3 in Phoenix.LiveView.Channel.view_handle_event/3
+    (telemetry 1.3.0) /Users/mhostetler/Source/Jido/jido_code/deps/telemetry/src/telemetry.erl:324: :telemetry.span/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:260: Phoenix.LiveView.Channel.handle_info/2
+    (stdlib 7.1) gen_server.erl:2434: :gen_server.try_handle_info/3
+    (stdlib 7.1) gen_server.erl:2420: :gen_server.handle_msg/3
+    (stdlib 7.1) proc_lib.erl:333: :proc_lib.init_p_do_apply/3
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:41.707 request_id=GJQpst_KeRx8-awAABFh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.721 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.728 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    (jido_code 0.1.0) lib/jido_code_web/live/settings_live.ex:843: JidoCodeWeb.SettingsLive.handle_event/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:530: anonymous fn/3 in Phoenix.LiveView.Channel.view_handle_event/3
+    (telemetry 1.3.0) /Users/mhostetler/Source/Jido/jido_code/deps/telemetry/src/telemetry.erl:324: :telemetry.span/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:260: Phoenix.LiveView.Channel.handle_info/2
+    (stdlib 7.1) gen_server.erl:2434: :gen_server.try_handle_info/3
+    (stdlib 7.1) gen_server.erl:2420: :gen_server.handle_msg/3
+    (stdlib 7.1) proc_lib.erl:333: :proc_lib.init_p_do_apply/3
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.730 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    (jido_code 0.1.0) lib/jido_code_web/live/settings_live.ex:843: JidoCodeWeb.SettingsLive.handle_event/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:530: anonymous fn/3 in Phoenix.LiveView.Channel.view_handle_event/3
+    (telemetry 1.3.0) /Users/mhostetler/Source/Jido/jido_code/deps/telemetry/src/telemetry.erl:324: :telemetry.span/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:260: Phoenix.LiveView.Channel.handle_info/2
+    (stdlib 7.1) gen_server.erl:2434: :gen_server.try_handle_info/3
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.738 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    (jido_code 0.1.0) lib/jido_code_web/live/settings_live.ex:843: JidoCodeWeb.SettingsLive.handle_event/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:530: anonymous fn/3 in Phoenix.LiveView.Channel.view_handle_event/3
+    (telemetry 1.3.0) /Users/mhostetler/Source/Jido/jido_code/deps/telemetry/src/telemetry.erl:324: :telemetry.span/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:260: Phoenix.LiveView.Channel.handle_info/2
+    (stdlib 7.1) gen_server.erl:2434: :gen_server.try_handle_info/3
+    (stdlib 7.1) gen_server.erl:2420: :gen_server.handle_msg/3
+    (stdlib 7.1) proc_lib.erl:333: :proc_lib.init_p_do_apply/3
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.740 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    (jido_code 0.1.0) lib/jido_code_web/live/settings_live.ex:843: JidoCodeWeb.SettingsLive.handle_event/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:530: anonymous fn/3 in Phoenix.LiveView.Channel.view_handle_event/3
+    (telemetry 1.3.0) /Users/mhostetler/Source/Jido/jido_code/deps/telemetry/src/telemetry.erl:324: :telemetry.span/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:260: Phoenix.LiveView.Channel.handle_info/2
+    (stdlib 7.1) gen_server.erl:2434: :gen_server.try_handle_info/3
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.747 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.destroy.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:5086: Ash.Changeset.run_around_actions/2
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4764: anonymous fn/2 in Ash.Changeset.transaction_hooks/2
+    (ash 3.16.0) lib/ash/changeset/changeset.ex:4665: Ash.Changeset.with_hooks/3
+    (ash 3.16.0) lib/ash/actions/destroy/destroy.ex:182: Ash.Actions.Destroy.commit/3
+    (ash 3.16.0) lib/ash/actions/destroy/destroy.ex:124: Ash.Actions.Destroy.do_run/4
+    (ash 3.16.0) lib/ash/actions/destroy/destroy.ex:61: Ash.Actions.Destroy.run/4
+    (ash 3.16.0) lib/ash.ex:3791: Ash.destroy/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:649: JidoCode.Security.SecretRefs.destroy_secret_ref/1
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:540: anonymous fn/2 in JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:538: JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:425: JidoCode.Security.SecretRefs.revoke_operational_secret/1
+    (jido_code 0.1.0) lib/jido_code_web/live/settings_live.ex:914: JidoCodeWeb.SettingsLive.handle_event/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:530: anonymous fn/3 in Phoenix.LiveView.Channel.view_handle_event/3
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:41.749 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:542: anonymous fn/2 in JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:538: JidoCode.Security.SecretRefs.revoke_secret_ref_with_audit/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:425: JidoCode.Security.SecretRefs.revoke_operational_secret/1
+    (jido_code 0.1.0) lib/jido_code_web/live/settings_live.ex:914: JidoCodeWeb.SettingsLive.handle_event/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:530: anonymous fn/3 in Phoenix.LiveView.Channel.view_handle_event/3
+    (telemetry 1.3.0) /Users/mhostetler/Source/Jido/jido_code/deps/telemetry/src/telemetry.erl:324: :telemetry.span/3
+    (phoenix_live_view 1.1.22) lib/phoenix_live_view/channel.ex:260: Phoenix.LiveView.Channel.handle_info/2
+    (stdlib 7.1) gen_server.erl:2434: :gen_server.try_handle_info/3
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.10:26:41.771 request_id=GJQpsuPj07ZDor8AADvE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.805 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.10:26:41.839 request_id=GJQpsufy_USuwDIAAA9D [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+10:26:41.847 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+..10:26:41.868 [error] security_audit=forge_prompt_redaction_failed severity=high action=llm_prompt_blocked operation=run_iteration_prompt error_type=forge_prompt_redaction_failed reason_type=forced_redaction_failure
+..10:26:42.085 request_id=GJQpsvamophfBrAAABLB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.094 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.144 request_id=GJQpsvnQEZkNbzwAABOh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.149 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.166 request_id=GJQpsvty7Cm38-cAABDj [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.172 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.193 request_id=GJQpsv0XyYnQ4gcAADyk [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.199 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.241 request_id=GJQpsv_5PfLVlmsAABSh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.249 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.270 request_id=GJQpswGkCwSCkvUAABWB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.273 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.343 request_id=GJQpswYLBGMr7bUAABZh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.351 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.401 request_id=GJQpswgwETCNOmUAABbh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.406 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.439 request_id=GJQpswuf_PTbZH8AABfB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.453 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.527 request_id=GJQpsxBEqzO7kFUAABih [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.532 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.542 request_id=GJQpsxGvmn-7kFUAABFD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.546 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.612 request_id=GJQpsxV2fmzvCN0AABGj [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.617 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.638 request_id=GJQpsxel-fbrgi0AABKD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.643 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.661 request_id=GJQpsxkHHHgYV1MAABnB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.665 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.685 request_id=GJQpsxpzU5CJiuUAABND [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.693 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+.10:26:42.715 request_id=GJQpsxwyyV5aLFEAAAmC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+10:26:42.726 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.WorkbenchLive reason=owner_session_present
+..10:26:42.860 request_id=GJQpsyRjQ8ZkdCQAAAqi [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+10:26:42.874 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+....10:26:42.966 request_id=GJQpsysnDLCed1sAABvB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+10:26:42.978 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+........10:26:43.164 request_id=GJQpszb9rYLp2Q0AAAzC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+10:26:43.168 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+...10:26:43.249 [warning] Missed 1 notifications in action JidoCode.Security.SecretRef.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:515: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code_web/live/setup_live_test.exs:663: JidoCodeWeb.SetupLiveTest."test step 3 exposes source resolution diagnostics without rendering secret material"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+10:26:43.254 [warning] Missed 1 notifications in action JidoCode.Security.SecretLifecycleAudit.create.
+
+This happens when the resources are in a transaction, and you did not pass
+`return_notifications?: true`. If you are in a changeset hook, you can
+return the notifications. If not, you can send the notifications using
+`Ash.Notifier.notify/1` once your resources are out of a transaction.
+
+    (elixir 1.19.2) lib/process.ex:900: Process.info/2
+    (ash 3.16.0) lib/ash/actions/helpers.ex:511: Ash.Actions.Helpers.warn_missed!/3
+    (ash 3.16.0) lib/ash/actions/helpers.ex:451: Ash.Actions.Helpers.notify/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:569: Ash.Actions.Create.commit/3
+    (ash 3.16.0) lib/ash/actions/create/create.ex:183: Ash.Actions.Create.do_run/4
+    (ash 3.16.0) lib/ash/actions/create/create.ex:89: Ash.Actions.Create.run/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:603: JidoCode.Security.SecretRefs.safe_invoke_secret_lifecycle_audit_persister/2
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:583: JidoCode.Security.SecretRefs.persist_secret_lifecycle_audit/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:517: anonymous fn/5 in JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/repo.ex:2: anonymous fn/1 in JidoCode.Repo."transaction (overridable 1)"/2
+    (ecto 3.13.5) lib/ecto/repo/transaction.ex:11: anonymous fn/3 in Ecto.Repo.Transaction.transact/4
+    (ecto_sql 3.13.4) lib/ecto/adapters/sql.ex:1473: anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4
+    (db_connection 2.9.0) lib/db_connection.ex:1747: DBConnection.run_transaction/4
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:514: JidoCode.Security.SecretRefs.persist_secret_ref_with_audit/5
+    (jido_code 0.1.0) lib/jido_code/security/secret_refs.ex:338: JidoCode.Security.SecretRefs.persist_operational_secret/1
+    test/jido_code_web/live/setup_live_test.exs:663: JidoCodeWeb.SetupLiveTest."test step 3 exposes source resolution diagnostics without rendering secret material"/1
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:528: ExUnit.Runner.exec_test/2
+    (stdlib 7.1) timer.erl:599: :timer.tc/2
+    (ex_unit 1.19.2) lib/ex_unit/runner.ex:450: anonymous fn/6 in ExUnit.Runner.spawn_test_monitor/4
+
+
+While you should likely leave this setting on, you can ignore these or turn them into errors.
+
+To ignore these in all cases:
+
+config :ash, :missed_notifications, :ignore
+
+To turn this into raised errors:
+
+config :ash, :missed_notifications, :raise
+
+.........10:26:43.431 request_id=GJQps0bltkM5ELMAAA7C [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+10:26:43.434 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.....
+Finished in 6.3 seconds (1.4s async, 4.8s sync)
+176 tests, 0 failures, 2 skipped (4 excluded)

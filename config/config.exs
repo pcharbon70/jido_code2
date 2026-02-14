@@ -89,6 +89,7 @@ config :jido_code,
     JidoCode.Accounts,
     JidoCode.GitHub,
     JidoCode.Projects,
+    JidoCode.Orchestration,
     JidoCode.Forge.Domain,
     JidoCode.Folio,
     JidoCode.Security
