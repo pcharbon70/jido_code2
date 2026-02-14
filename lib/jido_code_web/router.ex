@@ -35,6 +35,10 @@ defmodule JidoCodeWeb.Router do
     plug(:set_actor, :user)
   end
 
+  pipeline :github_webhook do
+    plug(:accepts, ["json"])
+  end
+
   scope "/", JidoCodeWeb do
     pipe_through(:rpc_run)
 
@@ -61,6 +65,12 @@ defmodule JidoCodeWeb.Router do
     end
 
     get("/ash-typescript", PageController, :index)
+  end
+
+  scope "/api", JidoCodeWeb do
+    pipe_through(:github_webhook)
+
+    post("/github/webhooks", GitHubWebhookController, :create)
   end
 
   scope "/api/json" do
