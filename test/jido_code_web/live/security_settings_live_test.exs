@@ -9,6 +9,7 @@ defmodule JidoCodeWeb.SecuritySettingsLiveTest do
   alias JidoCode.Accounts
   alias JidoCode.Accounts.ApiKey
   alias JidoCode.Accounts.User
+  alias JidoCode.Security.SecretRefs
 
   @run_action_params %{"action" => "rpc_list_repositories", "fields" => ["id"]}
 
@@ -145,6 +146,28 @@ defmodule JidoCodeWeb.SecuritySettingsLiveTest do
     assert has_element?(view, "#settings-security-secret-metadata", "integration")
     refute has_element?(view, "#settings-security-secret-metadata", plaintext_value)
     refute has_element?(view, "#settings-security-secret-value[value='#{plaintext_value}']")
+
+    assert {:ok, metadata_rows} = SecretRefs.list_secret_metadata()
+    secret_id = metadata_rows |> Enum.find(&(&1.name == secret_name)) |> Map.fetch!(:id)
+
+    assert has_element?(view, "#settings-security-secret-key-version-#{secret_id}", "1")
+    assert has_element?(view, "#settings-security-secret-rotated-at-#{secret_id}")
+
+    rotated_plaintext_value = "rotated-secret-value-#{System.unique_integer([:positive])}"
+
+    view
+    |> form("#settings-security-secret-form", %{
+      "security_secret" => %{
+        "scope" => "integration",
+        "name" => secret_name,
+        "value" => rotated_plaintext_value
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#settings-security-secret-key-version-#{secret_id}", "2")
+    assert has_element?(view, "#settings-security-secret-source-value-#{secret_id}", "rotation")
+    refute has_element?(view, "#settings-security-secret-metadata", rotated_plaintext_value)
   end
 
   test "security tab blocks secret persistence with typed remediation when encryption config is missing",

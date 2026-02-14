@@ -7491,3 +7491,178 @@ Excluding tags: [:sprite_integration]
 .....
 Finished in 3.4 seconds (1.0s async, 2.4s sync)
 80 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `lib/jido_code/security/secret_refs.ex`: `persist_operational_secret/1` now treats existing records as rotations by reading existing `SecretRef`, incrementing `key_version`, setting `last_rotated_at`, and writing ciphertext + metadata together in one upsert (`create_secret_ref/4` + new helpers at `lib/jido_code/security/secret_refs.ex:141`).
+- `test/jido_code/security/secret_refs_test.exs`: added coverage for rotation metadata progression and rollback-on-metadata-failure, plus create-path `last_rotated_at` assertions (`test/jido_code/security/secret_refs_test.exs:63`, `test/jido_code/security/secret_refs_test.exs:109`).
+- `test/jido_code_web/live/security_settings_live_test.exs`: added `/settings/security` assertions for key version/rotation metadata rendering and version bump on re-save (rotation) (`test/jido_code_web/live/security_settings_live_test.exs:122`).
+
+2) tests/commands executed
+- `elixir -e 'Code.require_file("/tmp/mix_no_pubsub/mix_sync_pubsub.ex")' -S mix format lib/jido_code/security/secret_refs.ex test/jido_code/security/secret_refs_test.exs test/jido_code_web/live/security_settings_live_test.exs` (pass)
+- `MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.require_file("/tmp/mix_no_pubsub/mix_sync_pubsub.ex")' -S mix format --check-formatted lib/jido_code/security/secret_refs.ex test/jido_code/security/secret_refs_test.exs test/jido_code_web/live/security_settings_live_test.exs` (pass)
+- `MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.require_file("/tmp/mix_no_pubsub/mix_sync_pubsub.ex")' -S mix compile --warnings-as-errors` (pass)
+- `MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.require_file("/tmp/mix_no_pubsub/mix_sync_pubsub.ex")' -S mix test ...` (fails before tests: DB socket permission `:eperm`)
+- `MIX_OS_CONCURRENCY_LOCK=0 elixir -e 'Code.require_file("/tmp/mix_no_pubsub/mix_sync_pubsub.ex")' -S mix precommit` (fails before tests: DB socket permission `:eperm`)
+
+3) acceptance criteria coverage
+- AC1: `key_version` and `last_rotated_at` are present after create and rotate.
+  - Create path assertions: `test/jido_code/security/secret_refs_test.exs:22`.
+  - Rotate path assertions: `test/jido_code/security/secret_refs_test.exs:63`.
+  - UI rendering assertions on `/settings/security`: `test/jido_code_web/live/security_settings_live_test.exs:153`.
+- AC2: rotation updates metadata atomically with encrypted active value.
+  - Rotation now computes next metadata and writes ciphertext + metadata in one upsert call: `lib/jido_code/security/secret_refs.ex:141`.
+  - Test verifies ciphertext changed and metadata updated together: `test/jido_code/security/secret_refs_test.exs:101`.
+- AC3: metadata write failure rolls back rotation and keeps prior state active.
+  - Overflow-based failure scenario validates no partial update (ciphertext/key_version/timestamp unchanged): `test/jido_code/security/secret_refs_test.exs:109`.
+
+4) blockers/assumptions
+- Blocker: full `mix precommit` cannot complete in this sandbox because DB socket access is denied (`tcp connect ... :eperm`) before test execution.
+- Assumption: saving an existing secret via `/settings/security` is a rotation; for existing records, source is set to `:rotation` (except explicit `:env`, which is preserved).
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 640759, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+....................**21:27:06.032 request_id=GJP_KBCupdeRP34AAAGG [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+.21:27:06.070 request_id=GJP_KBLA9e-LAcUAAAui [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:27:06.094 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:27:06.109 request_id=GJP_KBSyeLqLAcUAAAvC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:06.124 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+....21:27:06.295 [warning] security_audit=blocked_plaintext_secret_persistence resource=github_repo field=webhook_secret action=update actor_id=unknown actor_email=unknown
+.......
+
+  1) test persist_operational_secret stores encrypted ciphertext and metadata remains queryable (JidoCode.Security.SecretRefsTest)
+     test/jido_code/security/secret_refs_test.exs:22
+     match (=) failed
+     code:  assert {:ok, metadata} =
+              SecretRefs.persist_operational_secret(%{
+                scope: :integration,
+                name: name,
+                value: plaintext_value,
+                source: :onboarding
+              })
+     left:  {:ok, metadata}
+     right: {:error,
+             %{
+               message: "Secret persistence failed and no secret was persisted.",
+               error_type: "secret_persistence_failed",
+               recovery_instruction: "Retry the save. If it still fails, inspect database connectivity and rerun containment steps from the security playbook.\n"
+             }}
+     stacktrace:
+       test/jido_code/security/secret_refs_test.exs:26: (test)
+
+.21:27:06.419 request_id=GJP_KCe6sU10XG4AAASh [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+..21:27:06.456 request_id=GJP_KCmqahZtwR8AAAQm [warning] auth_sign_out_failed reason=:forced_invalidation_failure
+21:27:06.460 request_id=GJP_KCoQGlBtwR8AACrD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:06.475 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:27:06.488 request_id=GJP_KCwBO5xk7T0AAAOk [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.SettingsLive reason=missing_or_expired_session
+.......21:27:06.798 request_id=GJP_KD5vasFE5jsAAAUF [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+.21:27:06.817 request_id=GJP_KD9RrcXncWYAABGi [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:06.837 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:27:06.876 request_id=GJP_KELdjfLLWdkAABJC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:06.882 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+
+
+  2) test security tab persists encrypted SecretRef metadata and never renders plaintext values (JidoCodeWeb.SecuritySettingsLiveTest)
+     test/jido_code_web/live/security_settings_live_test.exs:122
+     Expected truthy, got false
+     code: assert has_element?(view, "#settings-security-secret-metadata", secret_name)
+     arguments:
+
+         # 1
+         #Phoenix.LiveViewTest.View<id: "phx-GJP_KEMBhH1Z2RJi", module: JidoCodeWeb.SettingsLive, pid: #PID<0.4130.0>, endpoint: JidoCodeWeb.Endpoint, ...>
+
+         # 2
+         "#settings-security-secret-metadata"
+
+         # 3
+         "github/webhook_secret_4739"
+
+     stacktrace:
+       test/jido_code_web/live/security_settings_live_test.exs:145: (test)
+
+21:27:06.909 request_id=GJP_KETmfx31E6EAABMi [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:06.923 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:27:06.950 request_id=GJP_KEdYOXmDQF4AAAbh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:06.967 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+..21:27:07.057 [warning] Quality checks failed for test-fail-1989 (attempt 1/3), retrying...
+21:27:07.064 [warning] Quality checks failed for test-fail-1989 (attempt 2/3), retrying...
+21:27:07.069 [error] Quality checks failed for test-fail-1989 after 3 attempts, giving up
+21:27:07.070 [warning] Pull request failed for test-fail-1989 after 3 attempts
+...21:27:07.214 [warning] Quality checks failed for test-retry-2530 (attempt 1/3), retrying...
+21:27:07.219 [warning] Quality checks failed for test-retry-2530 (attempt 2/3), retrying...
+..21:27:07.327 request_id=GJP_KF2SAm9mtXwAAAlk [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:07.347 request_id=GJP_KF8AZ8xmtXwAAAoE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:27:07.351 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+....21:27:07.641 request_id=GJP_KG_lKfs79HgAABXC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:27:07.646 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.........21:27:07.833 request_id=GJP_KHvu_jlZ7JQAABAh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:27:07.840 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.....21:27:07.961 request_id=GJP_KIOYDczoGc8AAC3D [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:27:07.964 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+...21:27:08.043 request_id=GJP_KIh77PfKrHMAABGB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:27:08.049 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+....
+Finished in 3.3 seconds (1.0s async, 2.3s sync)
+82 tests, 2 failures, 2 skipped (4 excluded)
+Implemented the ST-SEC-003 fix in `lib/jido_code/security/secret_refs.ex:158` and `lib/jido_code/security/secret_refs.ex:175`:
+
+- `get_secret_ref/2` now treats wrapped Ash not-found errors as “no existing secret” instead of hard failure.
+- Added `secret_ref_not_found?/1` to unwrap `%Ash.Error.Invalid{errors: ...}` and detect `%Ash.Error.Query.NotFound{}`.
+
+This resolves the two reported failures:
+- `JidoCode.Security.SecretRefsTest` first-create path now succeeds.
+- `JidoCodeWeb.SecuritySettingsLiveTest` now sees saved metadata in the security tab.
+
+Validation run:
+- `mix test test/jido_code/security/secret_refs_test.exs --trace` passed.
+- `mix test test/jido_code_web/live/security_settings_live_test.exs --trace` passed.
+- `mix test` passed (`82 tests, 0 failures`).
+
+`mix precommit` itself is currently blocked in this sandbox by an environment error (`Mix.PubSub` TCP socket `:eperm`) despite repeated retries, so I could not leave a direct `mix precommit` run green in this session.
+
+No commit was made, and nothing was pushed.
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 924809, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+....................21:36:15.014 request_id=GJP_p9-J29SRP34AAAfh [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+...21:36:15.167 request_id=GJP_p-vAJjtIld4AAAiB [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.SettingsLive reason=missing_or_expired_session
+.21:36:15.208 request_id=GJP_p-4dGRi0Q5QAAAlh [warning] auth_sign_out_failed reason=:forced_invalidation_failure
+21:36:15.211 request_id=GJP_p-5CKjC0Q5QAAAmB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:15.308 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:36:15.373 request_id=GJP_p_fae5L3hjEAAAqh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:36:15.383 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:36:15.387 request_id=GJP_p_i8tNL3hjEAAArB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:15.392 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:36:15.419 request_id=GJP_p_rOv-a5OLwAAAMD [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+..21:36:15.444 request_id=GJP_p_wowoNC4gcAAAOn [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+....21:36:15.573 request_id=GJP_qANvXVY_vo8AAAzh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:15.584 request_id=GJP_qAR9gw0_vo8AAA2h [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:15.588 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:36:15.710 [warning] Quality checks failed for test-retry-1096 (attempt 1/3), retrying...
+21:36:15.715 [warning] Quality checks failed for test-retry-1096 (attempt 2/3), retrying...
+....21:36:15.931 [warning] Quality checks failed for test-fail-4066 (attempt 1/3), retrying...
+21:36:15.935 [warning] Quality checks failed for test-fail-4066 (attempt 2/3), retrying...
+21:36:15.939 [error] Quality checks failed for test-fail-4066 after 3 attempts, giving up
+21:36:15.940 [warning] Pull request failed for test-fail-4066 after 3 attempts
+.....**21:36:16.142 request_id=GJP_qCWxyGOmouIAACGE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:16.169 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:36:16.188 request_id=GJP_qCh3N8lZASgAACLE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:16.205 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:36:16.248 request_id=GJP_qCwJxW8y88wAAAcC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:16.260 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.21:36:16.304 request_id=GJP_qC8qGrAPkIkAAAYD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+21:36:16.318 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+..21:36:16.344 [warning] security_audit=blocked_plaintext_secret_persistence resource=github_repo field=webhook_secret action=update actor_id=unknown actor_email=unknown
+...............21:36:16.825 request_id=GJP_qE5k39JN8_8AAAri [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:36:16.829 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+........21:36:16.991 request_id=GJP_qFhLTCm4j-0AAAqD [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:36:16.993 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+..21:36:17.067 request_id=GJP_qFyd7v0W72QAABkB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:36:17.071 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+...21:36:17.154 request_id=GJP_qGIax3OV59oAAAxj [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+21:36:17.162 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.....
+Finished in 3.3 seconds (0.9s async, 2.3s sync)
+82 tests, 0 failures, 2 skipped (4 excluded)

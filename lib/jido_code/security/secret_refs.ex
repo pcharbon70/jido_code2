@@ -139,18 +139,62 @@ defmodule JidoCode.Security.SecretRefs do
   end
 
   defp create_secret_ref(scope, name, encrypted_ciphertext, source) do
-    SecretRef.create(
-      %{
-        scope: scope,
-        name: name,
-        ciphertext: encrypted_ciphertext,
-        source: source,
-        key_version: 1,
-        last_rotated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-      },
-      authorize?: false
-    )
+    with {:ok, existing_secret_ref} <- get_secret_ref(scope, name),
+         {:ok, key_version} <- next_key_version(existing_secret_ref) do
+      SecretRef.create(
+        %{
+          scope: scope,
+          name: name,
+          ciphertext: encrypted_ciphertext,
+          source: metadata_source(source, existing_secret_ref),
+          key_version: key_version,
+          last_rotated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        },
+        authorize?: false
+      )
+    end
   end
+
+  defp get_secret_ref(scope, name) do
+    case SecretRef.get_by_scope_name(scope, name, authorize?: false) do
+      {:ok, %SecretRef{} = secret_ref} ->
+        {:ok, secret_ref}
+
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:error, reason} ->
+        if secret_ref_not_found?(reason) do
+          {:ok, nil}
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  defp secret_ref_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp secret_ref_not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &secret_ref_not_found?/1)
+  end
+
+  defp secret_ref_not_found?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &secret_ref_not_found?/1)
+  end
+
+  defp secret_ref_not_found?(_reason), do: false
+
+  defp next_key_version(nil), do: {:ok, 1}
+
+  defp next_key_version(%SecretRef{key_version: key_version}) when is_integer(key_version) do
+    {:ok, key_version + 1}
+  end
+
+  defp next_key_version(_secret_ref), do: {:error, :invalid_key_version}
+
+  defp metadata_source(source, nil), do: source
+  defp metadata_source(:env, %SecretRef{}), do: :env
+  defp metadata_source(_source, %SecretRef{}), do: :rotation
 
   defp normalize_scope(scope) when scope in [:instance, :project, :integration], do: {:ok, scope}
   defp normalize_scope("instance"), do: {:ok, :instance}
