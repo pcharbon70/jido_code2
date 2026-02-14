@@ -6594,3 +6594,64 @@ Excluding tags: [:sprite_integration]
 ......
 Finished in 2.9 seconds (0.4s async, 2.4s sync)
 61 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `lib/jido_code_web/router.ex`
+- `lib/jido_code_web/controllers/ash_typescript_rpc_controller.ex`
+- `lib/jido_code/github.ex`
+- `lib/jido_code/github/repo.ex`
+- `test/jido_code_web/controllers/ash_typescript_rpc_controller_test.exs`
+
+2) tests/commands executed
+- `mix test test/jido_code_web/controllers/ash_typescript_rpc_controller_test.exs` (pass)
+- `mix test` (pass, 64 tests / 0 failures / 2 skipped)
+- `mix compile --warnings-as-errors` (pass)
+- `mix precommit` (fails in this sandbox before running checks: Mix PubSub TCP socket `:eperm`)
+- `mix format` (same sandbox PubSub `:eperm`; could not run in this environment)
+
+3) acceptance criteria coverage
+- AC1: Bearer actor context accepted for permitted RPC actions.
+  - `POST /rpc/run` moved to a dedicated RPC pipeline and `run/2` now resolves bearer auth explicitly.
+  - Added a permitted RPC action (`rpc_list_repositories`) via `AshTypescript.Rpc` on `JidoCode.GitHub` / `JidoCode.GitHub.Repo`.
+- AC2: Authorized bearer requests execute policy checks and return typed responses.
+  - Valid bearer requests execute `AshTypescript.Rpc.run_action/3` and return typed RPC envelopes.
+  - `JidoCode.GitHub.Repo` action runs through Ash policy authorizer (`authorize_if always()`).
+  - Response now includes auth metadata (`meta.actor_auth_mode`) without token values.
+- AC3: Invalid/expired/revoked bearer returns typed authorization failure.
+  - If a bearer header is present but cannot resolve a valid actor (including revoked tokens), controller returns typed error:
+    - `type: "authorization_failed"`
+    - `details.reason: "invalid_expired_or_revoked_bearer_token"`
+  - Covered by tests for invalid and revoked bearer tokens.
+
+4) blockers/assumptions
+- Blocker: `mix precommit` cannot complete in this sandbox due Mix PubSub socket permission error (`failed to open a TCP socket ... reason: :eperm`), so I validated with compile + full test suite + story-specific tests instead.
+- Assumption: Story-required “typed authorization failure” is satisfied by the structured RPC error envelope used above, and auth-mode metadata is expected at top-level `meta.actor_auth_mode`.
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 96214, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+................**....19:25:10.361 request_id=GJP4gMDLwPwtpXYAAAVE [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+....19:25:10.703 request_id=GJP4gNU9VoP34bIAACmj [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+...19:25:10.825 [warning] Quality checks failed for test-retry-902 (attempt 1/3), retrying...
+19:25:10.830 [warning] Quality checks failed for test-retry-902 (attempt 2/3), retrying...
+...19:25:10.975 [warning] Quality checks failed for test-fail-1382 (attempt 1/3), retrying...
+19:25:10.980 [warning] Quality checks failed for test-fail-1382 (attempt 2/3), retrying...
+19:25:10.984 [error] Quality checks failed for test-fail-1382 after 3 attempts, giving up
+19:25:10.985 [warning] Pull request failed for test-fail-1382 after 3 attempts
+.19:25:11.052 request_id=GJP4gOoMkvmtwJYAAAoE [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+.19:25:11.081 request_id=GJP4gOuKa2qy1Z4AAAsE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+19:25:11.089 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+19:25:11.093 request_id=GJP4gOxNZxuy1Z4AAAtE [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+19:25:11.108 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.......19:25:11.439 request_id=GJP4gQDHKzIjw9kAAAXC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+19:25:11.455 request_id=GJP4gQHgyCEjw9kAAA_E [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+19:25:11.463 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+........19:25:11.743 request_id=GJP4gRJyEDJfI7wAAAcB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+19:25:11.751 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.19:25:11.782 request_id=GJP4gRVYfrL6l4IAAAci [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+19:25:11.786 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.....19:25:11.938 request_id=GJP4gR6of2KGCtcAAAiC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+19:25:11.946 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.........
+Finished in 2.8 seconds (0.7s async, 2.1s sync)
+64 tests, 0 failures, 2 skipped (4 excluded)

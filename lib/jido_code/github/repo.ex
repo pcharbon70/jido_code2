@@ -3,11 +3,16 @@ defmodule JidoCode.GitHub.Repo do
     otp_app: :jido_code,
     domain: JidoCode.GitHub,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshTypescript.Resource]
 
   postgres do
     table "github_repos"
     repo JidoCode.Repo
+  end
+
+  typescript do
+    type_name "GitHubRepo"
   end
 
   code_interface do

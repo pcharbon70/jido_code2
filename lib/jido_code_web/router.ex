@@ -28,6 +28,19 @@ defmodule JidoCodeWeb.Router do
     plug(:set_actor, :user)
   end
 
+  pipeline :rpc_run do
+    plug(:accepts, ["json"])
+    plug(:fetch_session)
+    plug(:load_from_session)
+    plug(:set_actor, :user)
+  end
+
+  scope "/", JidoCodeWeb do
+    pipe_through(:rpc_run)
+
+    post("/rpc/run", AshTypescriptRpcController, :run)
+  end
+
   scope "/", JidoCodeWeb do
     pipe_through(:browser)
 
@@ -46,7 +59,6 @@ defmodule JidoCodeWeb.Router do
       live("/demos/chat", Demos.ChatLive, :index)
     end
 
-    post("/rpc/run", AshTypescriptRpcController, :run)
     post("/rpc/validate", AshTypescriptRpcController, :validate)
     get("/ash-typescript", PageController, :index)
   end
