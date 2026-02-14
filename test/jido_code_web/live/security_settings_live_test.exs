@@ -9,6 +9,7 @@ defmodule JidoCodeWeb.SecuritySettingsLiveTest do
   alias JidoCode.Accounts
   alias JidoCode.Accounts.ApiKey
   alias JidoCode.Accounts.User
+  alias JidoCode.GitHub.Repo
   alias JidoCode.Security.SecretRefs
 
   @run_action_params %{"action" => "rpc_list_repositories", "fields" => ["id"]}
@@ -212,6 +213,52 @@ defmodule JidoCodeWeb.SecuritySettingsLiveTest do
            )
 
     refute has_element?(view, "#settings-security-secret-metadata", secret_name)
+  end
+
+  test "github settings render masked placeholders for known secret patterns", %{conn: _conn} do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token, _owner} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    unique = System.unique_integer([:positive])
+    secret = "sk-test-0123456789abcdef"
+
+    {:ok, repo} =
+      Repo.create(%{
+        owner: "owner-#{unique}",
+        name: "repo-#{unique}",
+        settings: %{"Authorization: Bearer #{secret}" => true}
+      })
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/settings/github", on_error: :warn)
+
+    assert has_element?(view, "#settings-github-repo-settings-#{repo.id}", "[REDACTED")
+    refute has_element?(view, "#settings-github-repo-settings-#{repo.id}", secret)
+    refute has_element?(view, "#settings-github-repo-security-alert-#{repo.id}")
+  end
+
+  test "github settings suppress unsafe post-render values and raise security alert", %{conn: _conn} do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token, _owner} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    unique = System.unique_integer([:positive])
+    leaked_token = "xoxb-12345678901234567890"
+
+    {:ok, repo} =
+      Repo.create(%{
+        owner: "owner-alert-#{unique}",
+        name: "repo-alert-#{unique}",
+        settings: %{"#{leaked_token}" => "enabled"}
+      })
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/settings/github", on_error: :warn)
+
+    assert has_element?(view, "#settings-github-repo-settings-#{repo.id}", "[SENSITIVE CONTENT SUPPRESSED]")
+    assert has_element?(view, "#settings-github-repo-security-alert-#{repo.id}", "Security alert")
+    refute has_element?(view, "#settings-github-repo-settings-#{repo.id}", leaked_token)
   end
 
   defp register_owner(email, password) do

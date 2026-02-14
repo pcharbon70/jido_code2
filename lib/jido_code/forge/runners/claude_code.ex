@@ -26,6 +26,9 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
 
   @behaviour JidoCode.Forge.Runner
 
+  require Logger
+
+  alias JidoCode.Forge.PromptRedaction
   alias JidoCode.Forge.SpriteClient
 
   @forge_home "/var/local/forge"
@@ -46,21 +49,27 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
     max_budget = opts[:max_budget] || state[:max_budget] || 10.0
     prompt = opts[:prompt] || state[:prompt]
 
-    cmd = build_claude_command(model, max_turns, max_budget, prompt)
+    with {:ok, redacted_prompt} <- redact_prompt(prompt, :run_iteration_prompt) do
+      cmd = build_claude_command(model, max_turns, max_budget, redacted_prompt)
 
-    case SpriteClient.exec(client, cmd, timeout: :infinity) do
-      {output, 0} ->
-        result = parse_claude_output(output)
-        {:ok, result}
+      case SpriteClient.exec(client, cmd, timeout: :infinity) do
+        {output, 0} ->
+          result = parse_claude_output(output)
+          {:ok, result}
 
-      {output, code} ->
-        {:ok,
-         %{
-           status: :error,
-           output: output,
-           error: "Claude exited with code #{code}",
-           metadata: %{exit_code: code}
-         }}
+        {output, code} ->
+          {:ok,
+           %{
+             status: :error,
+             output: output,
+             error: "Claude exited with code #{code}",
+             metadata: %{exit_code: code}
+           }}
+      end
+    else
+      {:error, typed_error} = error ->
+        emit_redaction_failure(:run_iteration_prompt, typed_error)
+        error
     end
   end
 
@@ -127,7 +136,13 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
         :ok
 
       content ->
-        SpriteClient.write_file(client, "#{@forge_home}/templates/#{filename}", content)
+        with {:ok, redacted_content} <- redact_prompt(content, template_operation(key)) do
+          SpriteClient.write_file(client, "#{@forge_home}/templates/#{filename}", redacted_content)
+        else
+          {:error, typed_error} = error ->
+            emit_redaction_failure(template_operation(key), typed_error)
+            error
+        end
     end
   end
 
@@ -214,5 +229,19 @@ defmodule JidoCode.Forge.Runners.ClaudeCode do
         _ -> []
       end
     end)
+  end
+
+  defp redact_prompt(prompt, operation) do
+    PromptRedaction.redact_prompt_payload(prompt, operation: operation)
+  end
+
+  defp template_operation(:prompt_template), do: :write_prompt_template
+  defp template_operation(:context_template), do: :write_context_template
+  defp template_operation(_key), do: :write_template
+
+  defp emit_redaction_failure(operation, typed_error) do
+    Logger.error(
+      "security_audit=forge_prompt_redaction_failed severity=high action=llm_prompt_blocked operation=#{operation} error_type=#{typed_error.error_type} reason_type=#{typed_error.reason_type}"
+    )
   end
 end

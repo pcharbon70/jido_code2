@@ -4,6 +4,7 @@ defmodule JidoCodeWeb.SettingsLive do
   alias JidoCode.Accounts.SecurityTokens
   alias JidoCode.GitHub.Repo
   alias JidoCode.Security.SecretRefs
+  alias JidoCodeWeb.Security.UiRedaction
 
   @secret_scope_options [
     {"Instance", "instance"},
@@ -194,12 +195,16 @@ defmodule JidoCodeWeb.SettingsLive do
               <.icon name="hero-folder" class="w-6 h-6 text-base-content/50" />
               <div>
                 <p class="font-medium">{repo.full_name}</p>
-                <p class="text-sm text-base-content/60">
-                  <%= if repo.settings && map_size(repo.settings) > 0 do %>
-                    {inspect(Map.keys(repo.settings))}
-                  <% else %>
-                    No custom settings
-                  <% end %>
+                <% settings_summary = repo_settings_summary(repo.settings) %>
+                <p id={"settings-github-repo-settings-#{repo.id}"} class="text-sm text-base-content/60">
+                  {settings_summary.text}
+                </p>
+                <p
+                  :if={settings_summary.security_alert?}
+                  id={"settings-github-repo-security-alert-#{repo.id}"}
+                  class="text-xs text-warning mt-1"
+                >
+                  {settings_summary.alert_message}
                 </p>
               </div>
             </div>
@@ -808,5 +813,24 @@ defmodule JidoCodeWeb.SettingsLive do
       end
 
     "#{source_label} #{Map.get(audit, :id)} revoked at #{format_security_datetime(Map.get(audit, :revoked_at))}."
+  end
+
+  defp repo_settings_summary(settings) when is_map(settings) and map_size(settings) > 0 do
+    rendered_settings = inspect(Map.keys(settings))
+    redaction = UiRedaction.sanitize_text(rendered_settings)
+
+    %{
+      text: redaction.text,
+      security_alert?: redaction.security_alert?,
+      alert_message: UiRedaction.security_alert_message(redaction.reason)
+    }
+  end
+
+  defp repo_settings_summary(_settings) do
+    %{
+      text: "No custom settings",
+      security_alert?: false,
+      alert_message: nil
+    }
   end
 end

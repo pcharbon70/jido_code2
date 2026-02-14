@@ -3,9 +3,23 @@ defmodule JidoCodeWeb.Forge.ShowLive do
 
   alias JidoCode.Forge
   alias JidoCode.Forge.PubSub, as: ForgePubSub
+  alias JidoCode.Security.LogRedactor
+  alias JidoCodeWeb.Security.UiRedaction
 
   @impl true
   def mount(%{"session_id" => session_id}, _session, socket) do
+    mount_with_session_id(session_id, socket)
+  end
+
+  def mount(:not_mounted_at_router, %{"session_id" => session_id}, socket) do
+    mount_with_session_id(session_id, socket)
+  end
+
+  def mount(:not_mounted_at_router, %{session_id: session_id}, socket) do
+    mount_with_session_id(session_id, socket)
+  end
+
+  defp mount_with_session_id(session_id, socket) do
     result =
       try do
         Forge.status(session_id)
@@ -28,6 +42,8 @@ defmodule JidoCodeWeb.Forge.ShowLive do
          |> assign(:status, status)
          |> assign(:input, "")
          |> assign(:input_prompt, nil)
+         |> assign(:security_alert_message, nil)
+         |> assign(:suppressed_content_count, 0)
          |> assign(:not_found, false)
          |> stream(:output, [])}
 
@@ -36,6 +52,8 @@ defmodule JidoCodeWeb.Forge.ShowLive do
          socket
          |> assign(:page_title, "Session Not Found")
          |> assign(:session_id, session_id)
+         |> assign(:security_alert_message, nil)
+         |> assign(:suppressed_content_count, 0)
          |> assign(:not_found, true)}
     end
   end
@@ -51,28 +69,40 @@ defmodule JidoCodeWeb.Forge.ShowLive do
     socket =
       Enum.with_index(lines)
       |> Enum.reduce(socket, fn {line, idx}, acc ->
-        stream_insert(acc, :output, %{
-          id: "line-#{seq}-#{idx}-#{System.unique_integer()}",
-          kind: :out,
-          text: line
-        })
+        redaction = UiRedaction.sanitize_text(line)
+
+        acc =
+          acc
+          |> maybe_raise_security_alert(redaction)
+          |> stream_insert(:output, %{
+            id: "line-#{seq}-#{idx}-#{System.unique_integer()}",
+            kind: :out,
+            text: redaction.text
+          })
+
+        acc
       end)
 
     {:noreply, socket}
   end
 
   def handle_info({:needs_input, %{prompt: prompt}}, socket) do
+    redaction = UiRedaction.sanitize_text(prompt, placeholder: "[SENSITIVE PROMPT SUPPRESSED]")
+
     {:noreply,
      socket
+     |> maybe_raise_security_alert(redaction)
      |> assign(:status, Map.put(socket.assigns.status, :state, :needs_input))
-     |> assign(:input_prompt, prompt)}
+     |> assign(:input_prompt, redaction.text)}
   end
 
   def handle_info({:stopped, reason}, socket) do
+    safe_reason = LogRedactor.safe_inspect(reason)
+
     {:noreply,
      socket
      |> assign(:status, Map.put(socket.assigns.status, :state, :stopped))
-     |> put_flash(:info, "Session stopped: #{inspect(reason)}")}
+     |> put_flash(:info, "Session stopped: #{safe_reason}")}
   end
 
   def handle_info(:refresh, socket) do
@@ -107,7 +137,14 @@ defmodule JidoCodeWeb.Forge.ShowLive do
       output
       |> String.split("\n", trim: true)
       |> Enum.reduce(socket, fn line, acc ->
-        stream_insert(acc, :output, %{id: uniq_line_id(), kind: :out, text: line})
+        redaction = UiRedaction.sanitize_text(line)
+
+        stream_insert(acc, :output, %{
+          id: uniq_line_id(),
+          kind: :out,
+          text: redaction.text
+        })
+        |> maybe_raise_security_alert(redaction)
       end)
 
     socket =
@@ -129,11 +166,15 @@ defmodule JidoCodeWeb.Forge.ShowLive do
   end
 
   def handle_info({:terminal_exec_result, {:error, reason}}, socket) do
+    redaction = UiRedaction.sanitize_text("[error] #{LogRedactor.safe_inspect(reason)}")
+
     {:noreply,
-     stream_insert(socket, :output, %{
+     socket
+     |> maybe_raise_security_alert(redaction)
+     |> stream_insert(:output, %{
        id: uniq_line_id(),
        kind: :err,
-       text: "[error] #{inspect(reason)}"
+       text: redaction.text
      })}
   end
 
@@ -178,12 +219,16 @@ defmodule JidoCodeWeb.Forge.ShowLive do
     if command == "" do
       {:noreply, socket}
     else
+      redaction = UiRedaction.sanitize_text("$ " <> command, placeholder: "$ [SENSITIVE COMMAND SUPPRESSED]")
+
       socket =
-        stream_insert(socket, :output, %{
+        socket
+        |> stream_insert(:output, %{
           id: uniq_line_id(),
           kind: :cmd,
-          text: "$ " <> command
+          text: redaction.text
         })
+        |> maybe_raise_security_alert(redaction)
 
       session_id = socket.assigns.session_id
       lv_pid = self()
@@ -227,6 +272,16 @@ defmodule JidoCodeWeb.Forge.ShowLive do
             <.link navigate={~p"/forge"} class="btn btn-primary">Back to Dashboard</.link>
           </div>
         <% else %>
+          <div
+            :if={@security_alert_message}
+            id="forge-run-security-alert"
+            class="mb-6 p-4 border border-warning/50 rounded-lg bg-warning/10"
+          >
+            <p class="font-semibold">Security alert</p>
+            <p class="text-sm mt-1">{@security_alert_message}</p>
+            <p class="text-xs mt-1">Suppressed segments: {@suppressed_content_count}</p>
+          </div>
+
           <div class="flex justify-between items-center mb-6">
             <div>
               <.link navigate={~p"/forge"} class="text-sm opacity-60 hover:opacity-100">
@@ -435,4 +490,13 @@ defmodule JidoCodeWeb.Forge.ShowLive do
   defp state_colors(:stopping), do: {"bg-base-300", "text-base-content/60"}
   defp state_colors(:stopped), do: {"bg-base-300", "text-base-content/60"}
   defp state_colors(_), do: {"bg-base-300", "text-base-content"}
+
+  defp maybe_raise_security_alert(socket, %{security_alert?: true, reason: reason}) do
+    assign(socket,
+      security_alert_message: UiRedaction.security_alert_message(reason),
+      suppressed_content_count: socket.assigns.suppressed_content_count + 1
+    )
+  end
+
+  defp maybe_raise_security_alert(socket, _redaction), do: socket
 end
