@@ -245,7 +245,23 @@ defmodule JidoCodeWeb.SetupLive do
                 {github_status_label(github_integration_health(@github_credential_report).github_app_status)}
               </span>
             </p>
+            <p id="setup-github-auth-mode" class="text-base-content/80">
+              Active auth mode:
+              <span class={[
+                "badge ml-1",
+                github_auth_mode_badge_class(github_auth_mode_feedback(@github_credential_report).mode)
+              ]}>
+                {github_auth_mode_feedback(@github_credential_report).label}
+              </span>
+            </p>
           </div>
+          <p
+            :if={github_auth_mode_feedback(@github_credential_report).detail}
+            id="setup-github-auth-mode-feedback"
+            class="text-sm text-warning"
+          >
+            {github_auth_mode_feedback(@github_credential_report).detail}
+          </p>
           <p
             :if={github_integration_health(@github_credential_report).expected_repositories != []}
             id="setup-github-expected-repositories"
@@ -1621,6 +1637,58 @@ defmodule JidoCodeWeb.SetupLive do
 
   defp github_readiness_status_class(:ready), do: "badge-success"
   defp github_readiness_status_class(:blocked), do: "badge-error"
+
+  defp github_auth_mode_feedback(report) do
+    github_app_path = github_path_result(report, :github_app)
+    pat_path = github_path_result(report, :pat)
+
+    cond do
+      github_path_ready?(github_app_path) ->
+        %{
+          mode: :github_app,
+          label: "GitHub App",
+          detail: nil
+        }
+
+      github_path_ready?(pat_path) ->
+        %{
+          mode: :pat_fallback,
+          label: "PAT fallback",
+          detail: "PAT fallback has reduced granularity relative to GitHub App mode. Webhook automation may be limited."
+        }
+
+      true ->
+        %{
+          mode: :not_ready,
+          label: "Not ready",
+          detail: nil
+        }
+    end
+  end
+
+  defp github_auth_mode_badge_class(:github_app), do: "badge-success"
+  defp github_auth_mode_badge_class(:pat_fallback), do: "badge-warning"
+  defp github_auth_mode_badge_class(:not_ready), do: "badge-error"
+
+  defp github_path_result(%{paths: paths}, path) when is_list(paths) do
+    Enum.find(paths, fn path_result ->
+      path_value = Map.get(path_result, :path, Map.get(path_result, "path"))
+      path_value == path or path_value == Atom.to_string(path)
+    end) || %{}
+  end
+
+  defp github_path_result(_report, _path), do: %{}
+
+  defp github_path_ready?(path_result) when is_map(path_result) do
+    status = Map.get(path_result, :status, Map.get(path_result, "status"))
+
+    repository_access =
+      Map.get(path_result, :repository_access, Map.get(path_result, "repository_access"))
+
+    status in [:ready, "ready"] and repository_access in [:confirmed, "confirmed"]
+  end
+
+  defp github_path_ready?(_path_result), do: false
 
   defp environment_check_status_label(:ready), do: "Ready"
   defp environment_check_status_label(:failed), do: "Failed"

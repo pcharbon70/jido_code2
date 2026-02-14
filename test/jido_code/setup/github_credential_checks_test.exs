@@ -80,6 +80,104 @@ defmodule JidoCode.Setup.GitHubCredentialChecksTest do
     assert %DateTime{} = pat_path.validated_at
   end
 
+  test "run/2 allows progression when GitHub App is not configured and PAT fallback validates repository access" do
+    Application.put_env(:jido_code, :setup_github_credential_checker, fn _context ->
+      %{
+        checked_at: @checked_at,
+        status: :ready,
+        owner_context: "owner@example.com",
+        paths: [
+          %{
+            path: :github_app,
+            name: "GitHub App",
+            status: :not_configured,
+            detail:
+              "GitHub App credentials are not fully configured (`GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are required).",
+            remediation: "Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, then retry validation.",
+            error_type: "github_app_not_configured",
+            repository_access: :unconfirmed,
+            checked_at: @checked_at
+          },
+          %{
+            path: :pat,
+            name: "Personal Access Token (PAT)",
+            status: :ready,
+            detail: "GitHub PAT fallback confirms repository access.",
+            remediation: "Credential path is ready.",
+            repository_access: :confirmed,
+            repositories: ["owner/repo-one", "owner/repo-two"],
+            validated_at: @checked_at,
+            checked_at: @checked_at
+          }
+        ]
+      }
+    end)
+
+    report = GitHubCredentialChecks.run(nil, "owner@example.com")
+
+    refute GitHubCredentialChecks.blocked?(report)
+
+    github_app_path =
+      Enum.find(report.paths, fn path_result -> path_result.path == :github_app end)
+
+    pat_path = Enum.find(report.paths, fn path_result -> path_result.path == :pat end)
+
+    assert github_app_path.status == :not_configured
+    assert github_app_path.error_type == "github_app_not_configured"
+    assert pat_path.status == :ready
+    assert pat_path.repository_access == :confirmed
+    assert pat_path.repositories == ["owner/repo-one", "owner/repo-two"]
+    assert report.integration_health.readiness_status == :ready
+    assert report.integration_health.github_app_status == :not_configured
+  end
+
+  test "run/2 blocks progression when PAT fallback validation fails and GitHub App is not configured" do
+    Application.put_env(:jido_code, :setup_github_credential_checker, fn _context ->
+      %{
+        checked_at: @checked_at,
+        status: :blocked,
+        owner_context: "owner@example.com",
+        paths: [
+          %{
+            path: :github_app,
+            name: "GitHub App",
+            status: :not_configured,
+            detail:
+              "GitHub App credentials are not fully configured (`GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are required).",
+            remediation: "Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, then retry validation.",
+            error_type: "github_app_not_configured",
+            repository_access: :unconfirmed,
+            checked_at: @checked_at
+          },
+          %{
+            path: :pat,
+            name: "Personal Access Token (PAT)",
+            status: :invalid,
+            detail: "Configured GitHub PAT failed validation.",
+            remediation: "Set a valid `GITHUB_PAT` and retry validation.",
+            error_type: "github_pat_credentials_invalid",
+            repository_access: :unconfirmed,
+            checked_at: @checked_at
+          }
+        ]
+      }
+    end)
+
+    report = GitHubCredentialChecks.run(nil, "owner@example.com")
+
+    assert GitHubCredentialChecks.blocked?(report)
+
+    blocked_paths =
+      report
+      |> GitHubCredentialChecks.blocked_paths()
+      |> Enum.map(fn path_result -> path_result.error_type end)
+
+    assert "github_app_not_configured" in blocked_paths
+    assert "github_pat_credentials_invalid" in blocked_paths
+    assert report.integration_health.readiness_status == :blocked
+    assert report.integration_health.github_app_status == :not_configured
+  end
+
   test "run/2 blocks progression when both GitHub credential paths fail" do
     Application.put_env(:jido_code, :setup_github_credential_checker, fn _context ->
       %{
