@@ -541,6 +541,184 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
     assert persisted_run.current_step == "approval_gate"
   end
 
+  test "retries a failed run from run detail and preserves prior failure lineage on the new attempt", %{
+    conn: _conn
+  } do
+    register_owner("retry-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("retry-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-retry",
+        github_full_name: "owner/repo-run-detail-retry",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    failed_run_id = "run-detail-retry-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: failed_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Retry failed run from detail"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 05:00:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "2 tests failed."},
+          "diff_summary" => "4 files changed (+50/-7)."
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:01:00Z]
+      })
+
+    {:ok, _run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:02:00Z]
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{failed_run_id}",
+        on_error: :warn
+      )
+
+    assert has_element?(view, "#run-detail-status", "failed")
+    assert has_element?(view, "#run-detail-retry-button")
+
+    render_click(element(view, "#run-detail-retry-button"))
+
+    retry_run_id = "#{failed_run_id}-retry-2"
+    retry_path = ~p"/projects/#{project.id}/runs/#{retry_run_id}"
+    assert_redirect(view, retry_path)
+
+    {:ok, retried_run} =
+      WorkflowRun.get_by_project_and_run_id(%{
+        project_id: project.id,
+        run_id: retry_run_id
+      })
+
+    assert retried_run.retry_of_run_id == failed_run_id
+    assert retried_run.retry_attempt == 2
+    assert [%{"run_id" => ^failed_run_id}] = retried_run.retry_lineage
+
+    {:ok, retry_view, _html} = live(recycle(authed_conn), retry_path, on_error: :warn)
+
+    assert has_element?(retry_view, "#run-detail-retry-parent-run", failed_run_id)
+    assert has_element?(retry_view, "#run-detail-retry-lineage-run-id-1", failed_run_id)
+    assert has_element?(retry_view, "#run-detail-retry-lineage-reason-type-1", "verification_failed")
+    assert has_element?(retry_view, "#run-detail-retry-lineage-artifact-count-1", "2")
+  end
+
+  test "blocks retry from run detail with typed policy violation details when retry policy disallows full-run",
+       %{
+         conn: _conn
+       } do
+    register_owner("retry-policy-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("retry-policy-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-retry-policy-blocked",
+        github_full_name: "owner/repo-run-detail-retry-policy-blocked",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    blocked_run_id = "run-detail-retry-policy-blocked-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: blocked_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{
+          source: "workflows",
+          mode: "manual",
+          retry_policy: %{full_run: false, mode: "step_only"}
+        },
+        inputs: %{"task_summary" => "Retry blocked by policy"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 05:10:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "1 test failed."}
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:11:00Z]
+      })
+
+    {:ok, _run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 05:12:00Z]
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{blocked_run_id}",
+        on_error: :warn
+      )
+
+    render_click(element(view, "#run-detail-retry-button"))
+
+    assert has_element?(view, "#run-detail-status", "failed")
+
+    assert has_element?(
+             view,
+             "#run-detail-retry-action-error-type",
+             "workflow_run_retry_action_failed"
+           )
+
+    assert has_element?(view, "#run-detail-retry-action-error-detail", "disallowed")
+    assert has_element?(view, "#run-detail-retry-action-error-remediation", "retry policy")
+
+    {:ok, no_retry_runs} =
+      WorkflowRun.read(
+        query: [
+          filter: [project_id: project.id, run_id: "#{blocked_run_id}-retry-2"]
+        ]
+      )
+
+    assert no_retry_runs == []
+  end
+
   defp register_owner(email, password) do
     strategy = Info.strategy!(User, :password)
 

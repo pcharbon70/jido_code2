@@ -568,6 +568,156 @@ defmodule JidoCode.Orchestration.WorkflowRunTest do
     assert length(persisted_run.status_transitions) == transition_count
   end
 
+  test "retry creates a new full-run attempt and preserves failure artifacts plus typed reasons in lineage" do
+    {:ok, project} = create_project("owner/repo-full-run-retry")
+    failed_run_id = "run-full-retry-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: failed_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Retry full run with lineage"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 04:00:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "2 tests failed."},
+          "diff_summary" => "6 files changed (+80/-14)."
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite.",
+          "remediation" => "Inspect failing tests and rerun with updated patch."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:01:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:02:00Z]
+      })
+
+    {:ok, retried_run} =
+      WorkflowRun.retry(run, %{
+        actor: %{id: "maintainer-5", email: "maintainer-5@example.com"},
+        retry_started_at: ~U[2026-02-15 04:03:00Z]
+      })
+
+    assert retried_run.run_id == "#{failed_run_id}-retry-2"
+    assert retried_run.status == :pending
+    assert retried_run.current_step == "queued"
+    assert retried_run.retry_of_run_id == failed_run_id
+    assert retried_run.retry_attempt == 2
+
+    assert [%{"run_id" => ^failed_run_id} = lineage_entry] = retried_run.retry_lineage
+    assert lineage_entry["status"] == "failed"
+    assert lineage_entry["failure_artifacts"]["failure_report"]["step"] == "run_tests"
+    assert lineage_entry["typed_failure"]["reason_type"] == "verification_failed"
+    assert lineage_entry["typed_failure"]["detail"] =~ "Verification failed"
+    assert lineage_entry["retry_actor"]["email"] == "maintainer-5@example.com"
+
+    assert get_in(retried_run.step_results, ["retry_context", "policy"]) == "full_run"
+    assert get_in(retried_run.step_results, ["retry_context", "retry_of_run_id"]) == failed_run_id
+    assert get_in(retried_run.step_results, ["retry_context", "retry_attempt"]) == 2
+
+    {:ok, persisted_failed_run} =
+      WorkflowRun.get_by_project_and_run_id(%{
+        project_id: project.id,
+        run_id: failed_run_id
+      })
+
+    assert persisted_failed_run.status == :failed
+    assert get_in(persisted_failed_run.step_results, ["failure_report", "step"]) == "run_tests"
+    assert get_in(persisted_failed_run.error, ["reason_type"]) == "verification_failed"
+  end
+
+  test "retry is blocked with typed policy violation when full-run retry is disallowed" do
+    {:ok, project} = create_project("owner/repo-full-run-retry-policy-blocked")
+    blocked_run_id = "run-full-retry-blocked-#{System.unique_integer([:positive])}"
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: blocked_run_id,
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{
+          source: "workflows",
+          mode: "manual",
+          retry_policy: %{full_run: false, mode: "step_only"}
+        },
+        inputs: %{"task_summary" => "Retry policy blocked"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 04:10:00Z],
+        step_results: %{
+          "failure_report" => %{"step" => "run_tests", "summary" => "1 test failed."}
+        },
+        error: %{
+          "error_type" => "workflow_step_failed",
+          "reason_type" => "verification_failed",
+          "detail" => "Verification failed while running test suite."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:11:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 04:12:00Z]
+      })
+
+    assert {:error, typed_failure} =
+             WorkflowRun.retry(run, %{
+               actor: %{id: "maintainer-6", email: "maintainer-6@example.com"}
+             })
+
+    assert typed_failure.error_type == "workflow_run_retry_action_failed"
+    assert typed_failure.operation == "retry_run"
+    assert typed_failure.reason_type == "policy_violation"
+    assert typed_failure.detail =~ "disallowed"
+    assert typed_failure.remediation =~ "retry policy"
+    assert Map.get(typed_failure.policy, :full_run, Map.get(typed_failure.policy, "full_run")) == false
+
+    {:ok, no_retry_runs} =
+      WorkflowRun.read(
+        query: [
+          filter: [project_id: project.id, run_id: "#{blocked_run_id}-retry-2"]
+        ]
+      )
+
+    assert no_retry_runs == []
+
+    {:ok, persisted_blocked_run} =
+      WorkflowRun.get_by_project_and_run_id(%{
+        project_id: project.id,
+        run_id: blocked_run_id
+      })
+
+    assert persisted_blocked_run.status == :failed
+  end
+
   test "publishes required run topic events with run metadata across step approval and terminal transitions" do
     {:ok, project} = create_project("owner/repo-run-events")
 

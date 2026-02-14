@@ -12,7 +12,8 @@ defmodule JidoCodeWeb.RunDetailLive do
          |> assign(:project_id, project_id)
          |> assign(:run_id, run_id)
          |> assign_run(run)
-         |> assign(:approval_action_error, nil)}
+         |> assign(:approval_action_error, nil)
+         |> assign(:retry_action_error, nil)}
 
       {:ok, nil} ->
         {:ok, assign_missing_run(socket, project_id, run_id)}
@@ -32,7 +33,8 @@ defmodule JidoCodeWeb.RunDetailLive do
         {:noreply,
          socket
          |> assign_run(approved_run)
-         |> assign(:approval_action_error, nil)}
+         |> assign(:approval_action_error, nil)
+         |> assign(:retry_action_error, nil)}
 
       {:error, typed_failure} ->
         {:noreply,
@@ -60,7 +62,8 @@ defmodule JidoCodeWeb.RunDetailLive do
         {:noreply,
          socket
          |> assign_run(rejected_run)
-         |> assign(:approval_action_error, nil)}
+         |> assign(:approval_action_error, nil)
+         |> assign(:retry_action_error, nil)}
 
       {:error, typed_failure} ->
         {:noreply,
@@ -72,6 +75,28 @@ defmodule JidoCodeWeb.RunDetailLive do
 
   @impl true
   def handle_event("reject_run", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("retry_run", _params, %{assigns: %{run: %WorkflowRun{} = run}} = socket) do
+    case WorkflowRun.retry(run, %{actor: approving_actor(socket)}) do
+      {:ok, %WorkflowRun{} = retried_run} ->
+        {:noreply,
+         socket
+         |> assign(:retry_action_error, nil)
+         |> assign(:approval_action_error, nil)
+         |> put_flash(:info, "Full-run retry started as #{retried_run.run_id}.")
+         |> push_navigate(to: ~p"/projects/#{socket.assigns.project_id}/runs/#{retried_run.run_id}")}
+
+      {:error, typed_failure} ->
+        {:noreply,
+         socket
+         |> refresh_run_assigns()
+         |> assign(:retry_action_error, normalize_retry_action_failure(typed_failure))}
+    end
+  end
+
+  @impl true
+  def handle_event("retry_run", _params, socket), do: {:noreply, socket}
 
   @impl true
   def render(assigns) do
@@ -89,6 +114,16 @@ defmodule JidoCodeWeb.RunDetailLive do
             </p>
             <p id="run-detail-current-step" class="text-sm">
               Current step: {current_step_label(@run.current_step)}
+            </p>
+            <p id="run-detail-retry-attempt" class="text-sm">
+              Attempt: {Map.get(@run, :retry_attempt, 1)}
+            </p>
+            <p
+              :if={normalize_optional_string(Map.get(@run, :retry_of_run_id))}
+              id="run-detail-retry-parent-run"
+              class="text-sm"
+            >
+              Retry parent: <span class="font-mono">{Map.get(@run, :retry_of_run_id)}</span>
             </p>
           </section>
 
@@ -185,6 +220,69 @@ defmodule JidoCodeWeb.RunDetailLive do
             </section>
           <% end %>
 
+          <%= if full_run_retry_available?(@run.status) do %>
+            <section id="run-detail-retry-panel" class="space-y-3 rounded border border-base-300 bg-base-100 p-4">
+              <h2 class="text-lg font-semibold">Retry run</h2>
+              <p id="run-detail-retry-note" class="text-sm text-base-content/80">
+                Starts a full-run retry attempt and preserves failure lineage for artifact and reason lookup.
+              </p>
+              <button
+                id="run-detail-retry-button"
+                type="button"
+                class="btn btn-outline"
+                phx-click="retry_run"
+              >
+                Retry full run
+              </button>
+
+              <%= if @retry_action_error do %>
+                <section
+                  id="run-detail-retry-action-error"
+                  class="space-y-1 rounded border border-error/40 bg-error/5 p-3"
+                >
+                  <p id="run-detail-retry-action-error-type" class="text-sm font-semibold text-error">
+                    Typed action failure: {@retry_action_error.error_type}
+                  </p>
+                  <p id="run-detail-retry-action-error-detail" class="text-sm text-base-content/80">
+                    {@retry_action_error.detail}
+                  </p>
+                  <p id="run-detail-retry-action-error-remediation" class="text-sm text-base-content/80">
+                    {@retry_action_error.remediation}
+                  </p>
+                </section>
+              <% end %>
+            </section>
+          <% end %>
+
+          <%= if @retry_lineage_entries != [] do %>
+            <section id="run-detail-retry-lineage" class="space-y-2">
+              <h2 class="text-lg font-semibold">Retry lineage</h2>
+              <ol id="run-detail-retry-lineage-list" class="space-y-2">
+                <li
+                  :for={{entry, index} <- Enum.with_index(@retry_lineage_entries, 1)}
+                  id={"run-detail-retry-lineage-entry-#{index}"}
+                  class="rounded border border-base-300 bg-base-100 p-3 space-y-1"
+                >
+                  <p id={"run-detail-retry-lineage-run-id-#{index}"} class="text-sm">
+                    Prior run: <span class="font-mono">{entry.run_id}</span>
+                  </p>
+                  <p id={"run-detail-retry-lineage-status-#{index}"} class="text-xs text-base-content/80">
+                    Status: {entry.status} (attempt {entry.retry_attempt})
+                  </p>
+                  <p id={"run-detail-retry-lineage-reason-type-#{index}"} class="text-xs text-base-content/80">
+                    Typed reason: {entry.reason_type}
+                  </p>
+                  <p id={"run-detail-retry-lineage-detail-#{index}"} class="text-xs text-base-content/80">
+                    {entry.detail}
+                  </p>
+                  <p id={"run-detail-retry-lineage-artifact-count-#{index}"} class="text-xs text-base-content/80">
+                    Preserved artifact keys: {entry.artifact_count}
+                  </p>
+                </li>
+              </ol>
+            </section>
+          <% end %>
+
           <section id="run-detail-timeline" class="space-y-2">
             <h2 class="text-lg font-semibold">Status timeline</h2>
 
@@ -236,9 +334,11 @@ defmodule JidoCodeWeb.RunDetailLive do
     |> assign(:run_id, run_id)
     |> assign(:run, nil)
     |> assign(:timeline_entries, [])
+    |> assign(:retry_lineage_entries, [])
     |> assign(:approval_context, nil)
     |> assign(:approval_context_blocker, nil)
     |> assign(:approval_action_error, nil)
+    |> assign(:retry_action_error, nil)
   end
 
   defp timeline_entries(%WorkflowRun{} = run) do
@@ -253,6 +353,7 @@ defmodule JidoCodeWeb.RunDetailLive do
     socket
     |> assign(:run, run)
     |> assign(:timeline_entries, timeline_entries(run))
+    |> assign(:retry_lineage_entries, retry_lineage_entries(run))
     |> assign(:approval_context, approval_context(run))
     |> assign(:approval_context_blocker, approval_context_blocker(run))
   end
@@ -323,6 +424,66 @@ defmodule JidoCodeWeb.RunDetailLive do
   end
 
   defp approval_context_blocker(_run), do: nil
+
+  defp retry_lineage_entries(%WorkflowRun{} = run) do
+    run
+    |> Map.get(:retry_lineage, [])
+    |> normalize_retry_lineage_entries()
+  end
+
+  defp retry_lineage_entries(_run), do: []
+
+  defp normalize_retry_lineage_entries(entries) when is_list(entries) do
+    Enum.map(entries, fn entry ->
+      typed_failure =
+        entry
+        |> map_get(:typed_failure, "typed_failure", %{})
+        |> normalize_map()
+
+      failure_artifacts =
+        entry
+        |> map_get(:failure_artifacts, "failure_artifacts", %{})
+        |> normalize_map()
+
+      %{
+        run_id:
+          entry
+          |> map_get(:run_id, "run_id")
+          |> normalize_optional_string() || "unknown",
+        status:
+          entry
+          |> map_get(:status, "status")
+          |> normalize_optional_string() || "unknown",
+        retry_attempt:
+          entry
+          |> map_get(:retry_attempt, "retry_attempt")
+          |> normalize_optional_integer() || 1,
+        reason_type:
+          typed_failure
+          |> map_get(:reason_type, "reason_type")
+          |> normalize_optional_string() || "unknown",
+        detail:
+          typed_failure
+          |> map_get(:detail, "detail")
+          |> normalize_optional_string() || "Prior failure details were not captured.",
+        artifact_count: map_size(failure_artifacts)
+      }
+    end)
+  end
+
+  defp normalize_retry_lineage_entries(_entries), do: []
+
+  defp full_run_retry_available?(status) when is_atom(status), do: status in [:failed, :cancelled]
+
+  defp full_run_retry_available?(status) when is_binary(status) do
+    case String.trim(status) do
+      "failed" -> true
+      "cancelled" -> true
+      _other -> false
+    end
+  end
+
+  defp full_run_retry_available?(_status), do: false
 
   defp awaiting_approval?(status) when is_atom(status), do: status == :awaiting_approval
 
@@ -414,6 +575,37 @@ defmodule JidoCodeWeb.RunDetailLive do
       error_type: "workflow_run_approval_action_failed",
       detail: "Approval action failed and run remains blocked.",
       remediation: "Review run state and retry from run detail."
+    }
+  end
+
+  defp normalize_retry_action_failure(typed_failure) when is_map(typed_failure) do
+    error_type =
+      typed_failure
+      |> map_get(:error_type, "error_type")
+      |> normalize_optional_string()
+
+    detail =
+      typed_failure
+      |> map_get(:detail, "detail")
+      |> normalize_optional_string()
+
+    remediation =
+      typed_failure
+      |> map_get(:remediation, "remediation")
+      |> normalize_optional_string()
+
+    %{
+      error_type: error_type || "workflow_run_retry_action_failed",
+      detail: detail || "Retry action failed and no new attempt was created.",
+      remediation: remediation || "Review workflow retry policy and retry from run detail."
+    }
+  end
+
+  defp normalize_retry_action_failure(_typed_failure) do
+    %{
+      error_type: "workflow_run_retry_action_failed",
+      detail: "Retry action failed and no new attempt was created.",
+      remediation: "Review workflow retry policy and retry from run detail."
     }
   end
 
@@ -568,4 +760,15 @@ defmodule JidoCodeWeb.RunDetailLive do
   defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_optional_string(value) when is_float(value), do: :erlang.float_to_binary(value)
   defp normalize_optional_string(_value), do: nil
+
+  defp normalize_optional_integer(value) when is_integer(value), do: value
+
+  defp normalize_optional_integer(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _other -> nil
+    end
+  end
+
+  defp normalize_optional_integer(_value), do: nil
 end
