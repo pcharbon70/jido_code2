@@ -521,7 +521,13 @@ defmodule JidoCodeWeb.SetupLiveTest do
     assert has_element?(view, "#setup-github-checked-at", "2026-02-13T12:34:56Z")
     assert has_element?(view, "#setup-github-owner-context", "owner@example.com")
     assert has_element?(view, "#setup-github-github_app-status", "Invalid")
-    assert has_element?(view, "#setup-github-error-type-github_app", "github_app_repository_access_unverified")
+
+    assert has_element?(
+             view,
+             "#setup-github-error-type-github_app",
+             "github_app_repository_access_unverified"
+           )
+
     assert has_element?(view, "#setup-github-pat-status", "Ready")
     assert has_element?(view, "#setup-github-repository-access-pat", "Confirmed")
     assert has_element?(view, "#setup-github-repositories-pat", "owner/repo-one")
@@ -588,7 +594,13 @@ defmodule JidoCodeWeb.SetupLiveTest do
 
     assert has_element?(view, "#setup-github-github_app-status", "Invalid")
     assert has_element?(view, "#setup-github-pat-status", "Invalid")
-    assert has_element?(view, "#setup-github-error-type-github_app", "github_app_credentials_invalid")
+
+    assert has_element?(
+             view,
+             "#setup-github-error-type-github_app",
+             "github_app_credentials_invalid"
+           )
+
     assert has_element?(view, "#setup-github-error-type-pat", "github_pat_credentials_invalid")
 
     view
@@ -606,6 +618,176 @@ defmodule JidoCodeWeb.SetupLiveTest do
     persisted_config = Application.get_env(:jido_code, :system_config)
     assert Map.fetch!(persisted_config, :onboarding_step) == 4
     refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "4")
+  end
+
+  test "step 5 persists local environment defaults with workspace validation results", %{
+    conn: conn
+  } do
+    workspace_root = unique_workspace_root()
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 5,
+      onboarding_state: %{
+        "1" => %{"validated_note" => "Prerequisite checks passed"},
+        "2" => %{
+          "validated_note" => "Owner account confirmed",
+          "owner_email" => "owner@example.com"
+        },
+        "3" => %{"validated_note" => "Provider setup confirmed"},
+        "4" => %{"validated_note" => "GitHub credentials validated"}
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-environment-mode", "Cloud")
+    assert has_element?(view, "#setup-default-environment", "sprite")
+
+    view
+    |> form("#onboarding-step-form", %{
+      "step" => %{
+        "execution_mode" => "local",
+        "workspace_root" => workspace_root,
+        "validated_note" => "Environment defaults confirmed"
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 6")
+
+    persisted_config = Application.get_env(:jido_code, :system_config)
+    assert Map.fetch!(persisted_config, :onboarding_step) == 6
+    assert Map.fetch!(persisted_config, :default_environment) == :local
+    assert Map.fetch!(persisted_config, :workspace_root) == Path.expand(workspace_root)
+
+    environment_state =
+      persisted_config
+      |> Map.fetch!(:onboarding_state)
+      |> Map.fetch!("5")
+      |> Map.fetch!("environment_defaults")
+
+    assert environment_state["status"] == "ready"
+    assert environment_state["mode"] == "local"
+    assert environment_state["default_environment"] == "local"
+    assert environment_state["workspace_root"] == Path.expand(workspace_root)
+
+    check_by_id =
+      environment_state["checks"]
+      |> Enum.map(fn check -> {check["id"], check} end)
+      |> Map.new()
+
+    assert check_by_id["local_workspace_root"]["status"] == "ready"
+  end
+
+  test "step 5 enforces sprite defaults when cloud mode is selected", %{conn: conn} do
+    prior_workspace_root = unique_workspace_root()
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 5,
+      default_environment: :local,
+      workspace_root: prior_workspace_root,
+      onboarding_state: %{
+        "1" => %{"validated_note" => "Prerequisite checks passed"},
+        "2" => %{
+          "validated_note" => "Owner account confirmed",
+          "owner_email" => "owner@example.com"
+        },
+        "3" => %{"validated_note" => "Provider setup confirmed"},
+        "4" => %{"validated_note" => "GitHub credentials validated"}
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-environment-mode", "Local")
+    assert has_element?(view, "#setup-default-environment", "local")
+
+    view
+    |> form("#onboarding-step-form", %{
+      "step" => %{
+        "execution_mode" => "cloud",
+        "workspace_root" => "/tmp/ignored-by-cloud-mode",
+        "validated_note" => "Switching to cloud defaults"
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 6")
+
+    persisted_config = Application.get_env(:jido_code, :system_config)
+    assert Map.fetch!(persisted_config, :onboarding_step) == 6
+    assert Map.fetch!(persisted_config, :default_environment) == :sprite
+    assert is_nil(Map.fetch!(persisted_config, :workspace_root))
+
+    environment_state =
+      persisted_config
+      |> Map.fetch!(:onboarding_state)
+      |> Map.fetch!("5")
+      |> Map.fetch!("environment_defaults")
+
+    assert environment_state["mode"] == "cloud"
+    assert environment_state["default_environment"] == "sprite"
+    assert is_nil(environment_state["workspace_root"])
+
+    check_by_id =
+      environment_state["checks"]
+      |> Enum.map(fn check -> {check["id"], check} end)
+      |> Map.new()
+
+    assert check_by_id["cloud_sprite_default"]["status"] == "ready"
+  end
+
+  test "step 5 blocks invalid local workspace roots and preserves existing defaults", %{
+    conn: conn
+  } do
+    test_pid = self()
+    persisted_workspace_root = unique_workspace_root()
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 5,
+      default_environment: :local,
+      workspace_root: persisted_workspace_root,
+      onboarding_state: %{
+        "1" => %{"validated_note" => "Prerequisite checks passed"},
+        "2" => %{
+          "validated_note" => "Owner account confirmed",
+          "owner_email" => "owner@example.com"
+        },
+        "3" => %{"validated_note" => "Provider setup confirmed"},
+        "4" => %{"validated_note" => "GitHub credentials validated"}
+      }
+    })
+
+    Application.put_env(:jido_code, :system_config_saver, fn _config ->
+      send(test_pid, :unexpected_save)
+      {:ok, %{onboarding_completed: false, onboarding_step: 6, onboarding_state: %{}}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    view
+    |> form("#onboarding-step-form", %{
+      "step" => %{
+        "execution_mode" => "local",
+        "workspace_root" => "relative/workspace-root",
+        "validated_note" => "Attempting invalid local mode save"
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 5")
+    assert has_element?(view, "#setup-save-error", "Environment defaults validation failed")
+    assert has_element?(view, "#setup-save-error", "workspace root")
+    refute_received :unexpected_save
+
+    persisted_config = Application.get_env(:jido_code, :system_config)
+    assert Map.fetch!(persisted_config, :onboarding_step) == 5
+    assert Map.fetch!(persisted_config, :default_environment) == :local
+    assert Map.fetch!(persisted_config, :workspace_root) == Path.expand(persisted_workspace_root)
+    refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "5")
   end
 
   test "step 6 runs webhook simulation before enabling Issue Bot defaults and persists readiness output",
@@ -635,7 +817,13 @@ defmodule JidoCodeWeb.SetupLiveTest do
     assert has_element?(view, "#setup-webhook-simulation-status", "Ready")
     assert has_element?(view, "#setup-webhook-signature-status", "Ready")
     assert has_element?(view, "#setup-webhook-event-issues-opened-status", "Ready")
-    assert has_element?(view, "#setup-webhook-event-issues-opened-route", "Issue Bot triage workflow")
+
+    assert has_element?(
+             view,
+             "#setup-webhook-event-issues-opened-route",
+             "Issue Bot triage workflow"
+           )
+
     assert has_element?(view, "#setup-webhook-event-issue-comment-created-status", "Ready")
     assert has_element?(view, "#setup-issue-bot-default-enabled", "true")
     assert has_element?(view, "#setup-issue-bot-default-approval-mode", "manual")
@@ -668,7 +856,11 @@ defmodule JidoCodeWeb.SetupLiveTest do
     assert events_by_name["issues.opened"]["status"] == "ready"
     assert events_by_name["issues.edited"]["status"] == "ready"
     assert events_by_name["issue_comment.created"]["status"] == "ready"
-    assert Map.fetch!(step_state, "issue_bot_defaults") == %{"approval_mode" => "manual", "enabled" => true}
+
+    assert Map.fetch!(step_state, "issue_bot_defaults") == %{
+             "approval_mode" => "manual",
+             "enabled" => true
+           }
   end
 
   test "step 6 blocks Issue Bot enablement when webhook simulation fails and retains the failure reason for retry",
@@ -780,6 +972,18 @@ defmodule JidoCodeWeb.SetupLiveTest do
   defp assert_owner_count(expected_count) do
     {:ok, owners} = Ash.read(User, domain: Accounts, authorize?: false)
     assert length(owners) == expected_count
+  end
+
+  defp unique_workspace_root do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "jido_code_setup_workspace_#{System.unique_integer([:positive])}"
+      )
+
+    File.rm_rf!(workspace_root)
+    File.mkdir_p!(workspace_root)
+    Path.expand(workspace_root)
   end
 
   defp passing_prerequisite_report do

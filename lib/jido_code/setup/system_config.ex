@@ -3,15 +3,27 @@ defmodule JidoCode.Setup.SystemConfig do
   Onboarding state loader and progress persistence for setup routing.
   """
 
-  @enforce_keys [:onboarding_completed, :onboarding_step, :onboarding_state]
-  defstruct onboarding_completed: false, onboarding_step: 1, onboarding_state: %{}
+  @enforce_keys [
+    :onboarding_completed,
+    :onboarding_step,
+    :onboarding_state,
+    :default_environment,
+    :workspace_root
+  ]
+  defstruct onboarding_completed: false,
+            onboarding_step: 1,
+            onboarding_state: %{},
+            default_environment: :sprite,
+            workspace_root: nil
 
   @type onboarding_state :: %{optional(String.t()) => map()}
 
   @type t :: %__MODULE__{
           onboarding_completed: boolean(),
           onboarding_step: pos_integer(),
-          onboarding_state: onboarding_state()
+          onboarding_state: onboarding_state(),
+          default_environment: :sprite | :local,
+          workspace_root: String.t() | nil
         }
 
   @type load_error :: %{
@@ -37,21 +49,40 @@ defmodule JidoCode.Setup.SystemConfig do
   end
 
   @spec save_step_progress(map()) :: {:ok, t()} | {:error, save_error()}
-  def save_step_progress(validated_state) when is_map(validated_state) do
+  @spec save_step_progress(map(), map()) :: {:ok, t()} | {:error, save_error()}
+  def save_step_progress(validated_state, config_updates \\ %{})
+
+  def save_step_progress(validated_state, config_updates)
+      when is_map(validated_state) and is_map(config_updates) do
     case load() do
       {:ok, %__MODULE__{} = config} ->
         current_step = config.onboarding_step
 
-        updated_config = %__MODULE__{
-          config
-          | onboarding_step: current_step + 1,
-            onboarding_state: Map.put(config.onboarding_state, Integer.to_string(current_step), validated_state)
-        }
+        with {:ok, normalized_updates} <- normalize_config_updates(config_updates) do
+          %__MODULE__{} = updated_config = apply_config_updates(config, normalized_updates)
 
-        case persist_config(updated_config) do
-          {:ok, persisted_config} ->
-            {:ok, persisted_config}
+          updated_config =
+            %{updated_config | onboarding_step: current_step + 1}
 
+          updated_config =
+            %{
+              updated_config
+              | onboarding_state:
+                  Map.put(
+                    config.onboarding_state,
+                    Integer.to_string(current_step),
+                    validated_state
+                  )
+            }
+
+          case persist_config(updated_config) do
+            {:ok, persisted_config} ->
+              {:ok, persisted_config}
+
+            {:error, reason} ->
+              {:error, save_error(reason, current_step)}
+          end
+        else
           {:error, reason} ->
             {:error, save_error(reason, current_step)}
         end
@@ -61,7 +92,8 @@ defmodule JidoCode.Setup.SystemConfig do
     end
   end
 
-  def save_step_progress(_), do: {:error, save_error(:invalid_step_state, 1)}
+  def save_step_progress(_validated_state, _config_updates),
+    do: {:error, save_error(:invalid_step_state, 1)}
 
   @doc false
   def default_loader do
@@ -73,7 +105,9 @@ defmodule JidoCode.Setup.SystemConfig do
     persisted_config = %{
       onboarding_completed: config.onboarding_completed,
       onboarding_step: config.onboarding_step,
-      onboarding_state: config.onboarding_state
+      onboarding_state: config.onboarding_state,
+      default_environment: config.default_environment,
+      workspace_root: config.workspace_root
     }
 
     Application.put_env(:jido_code, :system_config, persisted_config)
@@ -149,7 +183,15 @@ defmodule JidoCode.Setup.SystemConfig do
     validate_config(%__MODULE__{
       onboarding_completed: map_get(config, :onboarding_completed, "onboarding_completed", false),
       onboarding_step: map_get(config, :onboarding_step, "onboarding_step", 1),
-      onboarding_state: map_get(config, :onboarding_state, "onboarding_state", %{})
+      onboarding_state: map_get(config, :onboarding_state, "onboarding_state", %{}),
+      default_environment:
+        config
+        |> map_get(:default_environment, "default_environment", :sprite)
+        |> normalize_default_environment(:sprite),
+      workspace_root:
+        config
+        |> map_get(:workspace_root, "workspace_root", nil)
+        |> normalize_workspace_root()
     })
   end
 
@@ -159,11 +201,18 @@ defmodule JidoCode.Setup.SystemConfig do
          %__MODULE__{
            onboarding_completed: completed,
            onboarding_step: step,
-           onboarding_state: onboarding_state
+           onboarding_state: onboarding_state,
+           default_environment: default_environment,
+           workspace_root: workspace_root
          } = config
        )
        when is_boolean(completed) and is_integer(step) and step > 0 and is_map(onboarding_state) do
-    {:ok, config}
+    if valid_default_environment?(default_environment) and
+         valid_workspace_root?(default_environment, workspace_root) do
+      {:ok, config}
+    else
+      {:error, {:invalid_config, config}}
+    end
   end
 
   defp validate_config(%__MODULE__{} = config), do: {:error, {:invalid_config, config}}
@@ -174,6 +223,97 @@ defmodule JidoCode.Setup.SystemConfig do
       {:ok, normalized_config}
     end
   end
+
+  defp apply_config_updates(%__MODULE__{} = config, updates) when map_size(updates) == 0,
+    do: config
+
+  defp apply_config_updates(%__MODULE__{} = config, updates) do
+    default_environment = Map.get(updates, :default_environment, config.default_environment)
+    workspace_root = Map.get(updates, :workspace_root, config.workspace_root)
+
+    %__MODULE__{
+      config
+      | default_environment: default_environment,
+        workspace_root: normalize_workspace_root_for_environment(default_environment, workspace_root)
+    }
+  end
+
+  defp normalize_config_updates(config_updates) when is_map(config_updates) do
+    with {:ok, default_environment} <-
+           normalize_default_environment_update(
+             map_get(config_updates, :default_environment, "default_environment", :__not_set__)
+           ),
+         {:ok, workspace_root} <-
+           normalize_workspace_root_update(map_get(config_updates, :workspace_root, "workspace_root", :__not_set__)) do
+      {:ok,
+       %{}
+       |> maybe_put(:default_environment, default_environment)
+       |> maybe_put(:workspace_root, workspace_root)}
+    end
+  end
+
+  defp normalize_config_updates(_config_updates), do: {:error, :invalid_config_updates}
+
+  defp normalize_default_environment_update(:__not_set__), do: {:ok, :__not_set__}
+  defp normalize_default_environment_update(:sprite), do: {:ok, :sprite}
+  defp normalize_default_environment_update(:local), do: {:ok, :local}
+  defp normalize_default_environment_update("sprite"), do: {:ok, :sprite}
+  defp normalize_default_environment_update("local"), do: {:ok, :local}
+
+  defp normalize_default_environment_update(_default_environment),
+    do: {:error, :invalid_default_environment}
+
+  defp normalize_workspace_root_update(:__not_set__), do: {:ok, :__not_set__}
+  defp normalize_workspace_root_update(nil), do: {:ok, nil}
+
+  defp normalize_workspace_root_update(workspace_root) when is_binary(workspace_root) do
+    workspace_root
+    |> String.trim()
+    |> case do
+      "" -> {:ok, nil}
+      normalized_workspace_root -> {:ok, normalized_workspace_root}
+    end
+  end
+
+  defp normalize_workspace_root_update(_workspace_root), do: {:error, :invalid_workspace_root}
+
+  defp normalize_workspace_root_for_environment(:sprite, _workspace_root), do: nil
+  defp normalize_workspace_root_for_environment(:local, workspace_root), do: workspace_root
+
+  defp normalize_workspace_root_for_environment(_default_environment, workspace_root),
+    do: workspace_root
+
+  defp maybe_put(map, _key, :__not_set__), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp valid_default_environment?(default_environment),
+    do: default_environment in [:sprite, :local]
+
+  defp valid_workspace_root?(:sprite, workspace_root), do: is_nil(workspace_root)
+
+  defp valid_workspace_root?(:local, workspace_root),
+    do: is_binary(workspace_root) and String.trim(workspace_root) != ""
+
+  defp valid_workspace_root?(_default_environment, _workspace_root), do: false
+
+  defp normalize_default_environment(:sprite, _default), do: :sprite
+  defp normalize_default_environment(:local, _default), do: :local
+  defp normalize_default_environment("sprite", _default), do: :sprite
+  defp normalize_default_environment("local", _default), do: :local
+  defp normalize_default_environment(_default_environment, default), do: default
+
+  defp normalize_workspace_root(nil), do: nil
+
+  defp normalize_workspace_root(workspace_root) when is_binary(workspace_root) do
+    workspace_root
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized_workspace_root -> normalized_workspace_root
+    end
+  end
+
+  defp normalize_workspace_root(_workspace_root), do: nil
 
   defp map_get(map, atom_key, string_key, default) do
     cond do

@@ -3,6 +3,7 @@ defmodule JidoCodeWeb.SetupLive do
 
   alias AshAuthentication.{Info, Strategy}
   alias JidoCode.Accounts.User
+  alias JidoCode.Setup.EnvironmentDefaults
   alias JidoCode.Setup.GitHubCredentialChecks
   alias JidoCode.Setup.OwnerBootstrap
   alias JidoCode.Setup.ProviderCredentialChecks
@@ -30,13 +31,14 @@ defmodule JidoCodeWeb.SetupLive do
   def mount(params, _session, socket) do
     parsed_step = parse_step(params["step"])
 
-    {onboarding_step, onboarding_state, diagnostic} =
+    {onboarding_step, onboarding_state, default_environment, workspace_root, diagnostic} =
       case SystemConfig.load() do
         {:ok, %SystemConfig{} = config} ->
-          {config.onboarding_step, config.onboarding_state, params["diagnostic"] || @default_diagnostic}
+          {config.onboarding_step, config.onboarding_state, config.default_environment, config.workspace_root,
+           params["diagnostic"] || @default_diagnostic}
 
         {:error, %{diagnostic: load_diagnostic}} ->
-          {parsed_step, %{}, params["diagnostic"] || load_diagnostic}
+          {parsed_step, %{}, :sprite, nil, params["diagnostic"] || load_diagnostic}
       end
 
     prerequisite_report = resolve_prerequisite_report(onboarding_step, onboarding_state)
@@ -50,21 +52,32 @@ defmodule JidoCodeWeb.SetupLive do
     webhook_simulation_report =
       resolve_webhook_simulation_report(onboarding_step, onboarding_state)
 
+    environment_defaults_report =
+      resolve_environment_defaults_report(
+        onboarding_step,
+        onboarding_state,
+        default_environment,
+        workspace_root
+      )
+
     owner_bootstrap = resolve_owner_bootstrap(onboarding_step)
 
     {:ok,
      socket
      |> assign(:onboarding_step, onboarding_step)
      |> assign(:onboarding_state, onboarding_state)
+     |> assign(:default_environment, default_environment)
+     |> assign(:workspace_root, workspace_root)
      |> assign(:prerequisite_report, prerequisite_report)
      |> assign(:provider_credential_report, provider_credential_report)
      |> assign(:github_credential_report, github_credential_report)
      |> assign(:webhook_simulation_report, webhook_simulation_report)
+     |> assign(:environment_defaults_report, environment_defaults_report)
      |> assign(:owner_bootstrap, owner_bootstrap)
      |> assign(:save_error, owner_bootstrap_error(owner_bootstrap))
      |> assign(:redirect_reason, params["reason"] || "onboarding_incomplete")
      |> assign(:diagnostic, diagnostic)
-     |> assign_step_form(onboarding_step, onboarding_state)
+     |> assign_step_form(onboarding_step, onboarding_state, default_environment, workspace_root)
      |> assign_owner_form(onboarding_step, onboarding_state, owner_bootstrap)}
   end
 
@@ -258,6 +271,58 @@ defmodule JidoCodeWeb.SetupLive do
           </ul>
         </section>
 
+        <section :if={@environment_defaults_report} id="setup-environment-defaults" class="space-y-3">
+          <h2 class="text-lg font-semibold">Execution environment defaults</h2>
+          <p id="setup-environment-checked-at" class="text-sm text-base-content/70">
+            Last validated: {format_checked_at(@environment_defaults_report.checked_at)}
+          </p>
+
+          <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <p class="font-medium">Selected mode</p>
+              <span id="setup-environment-mode" class="badge badge-info">
+                {environment_mode_label(@environment_defaults_report.mode)}
+              </span>
+            </div>
+            <p id="setup-default-environment" class="text-sm text-base-content/80">
+              Default environment: {environment_default_label(@environment_defaults_report.default_environment)}
+            </p>
+            <p
+              :if={@environment_defaults_report.workspace_root}
+              id="setup-workspace-root"
+              class="text-sm text-base-content/80 font-mono"
+            >
+              Workspace root: {@environment_defaults_report.workspace_root}
+            </p>
+          </div>
+
+          <ul class="space-y-2">
+            <li
+              :for={check <- @environment_defaults_report.checks}
+              id={"setup-environment-#{check.id}"}
+              class="rounded-lg border border-base-300 bg-base-100 p-3"
+            >
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <p class="font-medium">{check.name}</p>
+                <span
+                  id={"setup-environment-#{check.id}-status"}
+                  class={["badge", environment_check_status_class(check.status)]}
+                >
+                  {environment_check_status_label(check.status)}
+                </span>
+              </div>
+              <p class="text-sm text-base-content/80">{check.detail}</p>
+              <p
+                :if={check.status != :ready}
+                id={"setup-environment-#{check.id}-remediation"}
+                class="text-sm text-warning"
+              >
+                {check.remediation}
+              </p>
+            </li>
+          </ul>
+        </section>
+
         <section :if={@webhook_simulation_report} id="setup-webhook-simulation" class="space-y-3">
           <h2 class="text-lg font-semibold">Issue Bot webhook simulation readiness</h2>
           <p id="setup-webhook-simulated-at" class="text-sm text-base-content/70">
@@ -406,6 +471,23 @@ defmodule JidoCodeWeb.SetupLive do
           class="space-y-4"
         >
           <.input
+            :if={@onboarding_step == 5}
+            field={@step_form[:execution_mode]}
+            id="setup-execution-mode"
+            type="select"
+            label="Default execution mode"
+            options={[{"Cloud (Sprite default)", "cloud"}, {"Local workspace", "local"}]}
+            required
+          />
+          <.input
+            :if={@onboarding_step == 5}
+            field={@step_form[:workspace_root]}
+            id="setup-workspace-root-input"
+            type="text"
+            label="Local workspace root"
+            placeholder="/absolute/path/to/workspaces"
+          />
+          <.input
             field={@step_form[:validated_note]}
             id="onboarding-validated-note"
             type="text"
@@ -486,10 +568,10 @@ defmodule JidoCodeWeb.SetupLive do
     {:noreply, assign(socket, :save_error, @owner_step_validation_error)}
   end
 
-  def handle_event("save_step", %{"step" => %{"validated_note" => validated_note}}, socket) do
-    case normalize_validated_note(validated_note) do
+  def handle_event("save_step", %{"step" => step_params}, socket) when is_map(step_params) do
+    case normalize_validated_note(Map.get(step_params, "validated_note")) do
       {:ok, normalized_note} ->
-        save_step_progress(socket, normalized_note)
+        save_step_progress(socket, normalized_note, step_params)
 
       {:error, diagnostic} ->
         {:noreply, assign(socket, :save_error, diagnostic)}
@@ -511,13 +593,47 @@ defmodule JidoCodeWeb.SetupLive do
 
   defp parse_step(_), do: 1
 
-  defp assign_step_form(socket, onboarding_step, onboarding_state) do
-    persisted_note =
-      onboarding_state
-      |> fetch_step_state(onboarding_step)
-      |> Map.get("validated_note", "")
+  defp assign_step_form(
+         socket,
+         onboarding_step,
+         onboarding_state,
+         default_environment,
+         workspace_root,
+         step_params \\ %{}
+       ) do
+    step_state = fetch_step_state(onboarding_state, onboarding_step)
 
-    assign(socket, :step_form, to_form(%{"validated_note" => persisted_note}, as: :step))
+    persisted_note = Map.get(step_state, "validated_note", "")
+
+    persisted_environment_state =
+      step_state
+      |> Map.get("environment_defaults", %{})
+      |> normalize_environment_state()
+
+    default_mode = default_environment_mode(default_environment)
+
+    execution_mode =
+      step_params
+      |> Map.get("execution_mode")
+      |> normalize_execution_mode(Map.get(persisted_environment_state, :mode, default_mode))
+
+    workspace_root_value =
+      step_params
+      |> Map.get("workspace_root")
+      |> normalize_workspace_root_input(Map.get(persisted_environment_state, :workspace_root, workspace_root || ""))
+
+    assign(
+      socket,
+      :step_form,
+      to_form(
+        %{
+          "validated_note" => persisted_note,
+          "execution_mode" => execution_mode,
+          "workspace_root" => workspace_root_value
+        },
+        as: :step
+      )
+    )
   end
 
   defp assign_owner_form(
@@ -571,6 +687,97 @@ defmodule JidoCodeWeb.SetupLive do
 
   defp normalize_validated_note(_), do: {:error, @validation_error}
 
+  defp environment_selection(step_params, default_environment, workspace_root)
+       when is_map(step_params) do
+    %{
+      "mode" =>
+        step_params
+        |> Map.get("execution_mode")
+        |> normalize_execution_mode(default_environment_mode(default_environment)),
+      "workspace_root" =>
+        step_params
+        |> Map.get("workspace_root")
+        |> normalize_workspace_root_input(workspace_root)
+    }
+  end
+
+  defp environment_selection(_step_params, default_environment, workspace_root) do
+    %{
+      "mode" => default_environment_mode(default_environment),
+      "workspace_root" => normalize_workspace_root_input(nil, workspace_root)
+    }
+  end
+
+  defp normalize_environment_state(environment_state) when is_map(environment_state) do
+    %{}
+    |> maybe_put_environment_field(
+      :mode,
+      environment_state
+      |> Map.get("mode")
+      |> normalize_execution_mode(nil)
+    )
+    |> maybe_put_environment_field(
+      :workspace_root,
+      environment_state
+      |> Map.get("workspace_root")
+      |> normalize_optional_workspace_root()
+    )
+  end
+
+  defp normalize_environment_state(_environment_state), do: %{}
+
+  defp default_environment_mode(:local), do: "local"
+  defp default_environment_mode(_default_environment), do: "cloud"
+
+  defp mode_param(:local), do: "local"
+  defp mode_param(:cloud), do: "cloud"
+
+  defp normalize_execution_mode("local", _default_mode), do: "local"
+  defp normalize_execution_mode(:local, _default_mode), do: "local"
+  defp normalize_execution_mode("cloud", _default_mode), do: "cloud"
+  defp normalize_execution_mode(:cloud, _default_mode), do: "cloud"
+  defp normalize_execution_mode(_mode, nil), do: nil
+  defp normalize_execution_mode(_mode, default_mode), do: default_mode
+
+  defp normalize_workspace_root_input(workspace_root, fallback) when is_binary(workspace_root) do
+    workspace_root
+    |> String.trim()
+    |> case do
+      "" -> normalize_workspace_root_fallback(fallback)
+      normalized_workspace_root -> normalized_workspace_root
+    end
+  end
+
+  defp normalize_workspace_root_input(_workspace_root, fallback),
+    do: normalize_workspace_root_fallback(fallback)
+
+  defp normalize_workspace_root_fallback(fallback) when is_binary(fallback) do
+    fallback
+    |> String.trim()
+    |> case do
+      "" -> ""
+      normalized_workspace_root -> normalized_workspace_root
+    end
+  end
+
+  defp normalize_workspace_root_fallback(_fallback), do: ""
+
+  defp normalize_optional_workspace_root(workspace_root) when is_binary(workspace_root) do
+    workspace_root
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized_workspace_root -> normalized_workspace_root
+    end
+  end
+
+  defp normalize_optional_workspace_root(_workspace_root), do: nil
+
+  defp maybe_put_environment_field(environment_state, _key, nil), do: environment_state
+
+  defp maybe_put_environment_field(environment_state, key, value),
+    do: Map.put(environment_state, key, value)
+
   defp validated_step_entries(onboarding_state) do
     onboarding_state
     |> Enum.filter(fn {_step_key, step_state} -> is_map(step_state) end)
@@ -623,6 +830,39 @@ defmodule JidoCodeWeb.SetupLive do
     end
   end
 
+  defp resolve_environment_defaults_report(
+         onboarding_step,
+         onboarding_state,
+         default_environment,
+         workspace_root
+       ) do
+    if onboarding_step == 5 do
+      persisted_environment_state =
+        onboarding_state
+        |> fetch_step_state(5)
+        |> Map.get("environment_defaults", %{})
+        |> normalize_environment_state()
+
+      EnvironmentDefaults.run(
+        environment_selection(
+          %{
+            "execution_mode" =>
+              Map.get(
+                persisted_environment_state,
+                :mode,
+                default_environment_mode(default_environment)
+              ),
+            "workspace_root" => Map.get(persisted_environment_state, :workspace_root, workspace_root || "")
+          },
+          default_environment,
+          workspace_root
+        )
+      )
+    else
+      nil
+    end
+  end
+
   defp resolve_owner_context(onboarding_state) do
     onboarding_state
     |> fetch_step_state(2)
@@ -641,7 +881,7 @@ defmodule JidoCodeWeb.SetupLive do
 
   defp normalize_owner_context(_owner_context), do: nil
 
-  defp save_step_progress(socket, validated_note) do
+  defp save_step_progress(socket, validated_note, step_params) do
     case socket.assigns.onboarding_step do
       1 ->
         prerequisite_report = PrerequisiteChecks.run()
@@ -693,6 +933,43 @@ defmodule JidoCodeWeb.SetupLive do
           })
         end
 
+      5 ->
+        environment_defaults_report =
+          step_params
+          |> environment_selection(
+            socket.assigns.default_environment,
+            socket.assigns.workspace_root
+          )
+          |> EnvironmentDefaults.run()
+
+        socket =
+          socket
+          |> assign(:environment_defaults_report, environment_defaults_report)
+          |> assign_step_form(
+            socket.assigns.onboarding_step,
+            socket.assigns.onboarding_state,
+            socket.assigns.default_environment,
+            socket.assigns.workspace_root,
+            %{
+              "validated_note" => validated_note,
+              "execution_mode" => mode_param(environment_defaults_report.mode),
+              "workspace_root" => environment_defaults_report.workspace_root || ""
+            }
+          )
+
+        if EnvironmentDefaults.blocked?(environment_defaults_report) do
+          {:noreply, assign(socket, :save_error, environment_block_message(environment_defaults_report))}
+        else
+          persist_step_progress(
+            socket,
+            %{
+              "validated_note" => validated_note,
+              "environment_defaults" => EnvironmentDefaults.serialize_for_state(environment_defaults_report)
+            },
+            EnvironmentDefaults.system_config_updates(environment_defaults_report)
+          )
+        end
+
       6 ->
         webhook_simulation_report =
           socket.assigns.onboarding_state
@@ -703,7 +980,12 @@ defmodule JidoCodeWeb.SetupLive do
         socket = assign(socket, :webhook_simulation_report, webhook_simulation_report)
 
         if WebhookSimulationChecks.blocked?(webhook_simulation_report) do
-          {:noreply, assign(socket, :save_error, webhook_simulation_block_message(webhook_simulation_report))}
+          {:noreply,
+           assign(
+             socket,
+             :save_error,
+             webhook_simulation_block_message(webhook_simulation_report)
+           )}
         else
           persist_step_progress(socket, %{
             "validated_note" => validated_note,
@@ -717,14 +999,19 @@ defmodule JidoCodeWeb.SetupLive do
     end
   end
 
-  defp persist_step_progress(socket, step_state) do
-    case SystemConfig.save_step_progress(step_state) do
+  defp persist_step_progress(socket, step_state, config_updates \\ %{}) do
+    case SystemConfig.save_step_progress(step_state, config_updates) do
       {:ok, %SystemConfig{} = config} ->
         {:noreply,
          socket
          |> assign_config_state(config)
          |> assign(:save_error, nil)
-         |> assign_step_form(config.onboarding_step, config.onboarding_state)}
+         |> assign_step_form(
+           config.onboarding_step,
+           config.onboarding_state,
+           config.default_environment,
+           config.workspace_root
+         )}
 
       {:error, %{diagnostic: diagnostic}} ->
         {:noreply, assign(socket, :save_error, diagnostic)}
@@ -778,6 +1065,18 @@ defmodule JidoCodeWeb.SetupLive do
     )
   end
 
+  defp environment_block_message(report) do
+    remediation =
+      report
+      |> EnvironmentDefaults.blocked_checks()
+      |> Enum.map(fn check -> "#{check.name}: #{check.remediation}" end)
+      |> Enum.join(" ")
+
+    String.trim(
+      "Environment defaults validation failed. Step 5 remains blocked and no environment defaults were changed. #{remediation}"
+    )
+  end
+
   defp webhook_simulation_block_message(report) do
     failure_reason =
       report
@@ -817,6 +1116,18 @@ defmodule JidoCodeWeb.SetupLive do
   defp github_status_class(:ready), do: "badge-success"
   defp github_status_class(:invalid), do: "badge-error"
   defp github_status_class(:not_configured), do: "badge-warning"
+
+  defp environment_check_status_label(:ready), do: "Ready"
+  defp environment_check_status_label(:failed), do: "Failed"
+
+  defp environment_check_status_class(:ready), do: "badge-success"
+  defp environment_check_status_class(:failed), do: "badge-error"
+
+  defp environment_mode_label(:cloud), do: "Cloud"
+  defp environment_mode_label(:local), do: "Local"
+
+  defp environment_default_label(:sprite), do: "sprite"
+  defp environment_default_label(:local), do: "local"
 
   defp webhook_simulation_status_label(:ready), do: "Ready"
   defp webhook_simulation_status_label(:blocked), do: "Blocked"
@@ -885,6 +1196,8 @@ defmodule JidoCodeWeb.SetupLive do
     socket
     |> assign(:onboarding_step, config.onboarding_step)
     |> assign(:onboarding_state, config.onboarding_state)
+    |> assign(:default_environment, config.default_environment)
+    |> assign(:workspace_root, config.workspace_root)
     |> assign(
       :prerequisite_report,
       resolve_prerequisite_report(config.onboarding_step, config.onboarding_state)
@@ -900,6 +1213,15 @@ defmodule JidoCodeWeb.SetupLive do
     |> assign(
       :webhook_simulation_report,
       resolve_webhook_simulation_report(config.onboarding_step, config.onboarding_state)
+    )
+    |> assign(
+      :environment_defaults_report,
+      resolve_environment_defaults_report(
+        config.onboarding_step,
+        config.onboarding_state,
+        config.default_environment,
+        config.workspace_root
+      )
     )
     |> assign(:owner_bootstrap, owner_bootstrap)
     |> assign_owner_form(config.onboarding_step, config.onboarding_state, owner_bootstrap)
