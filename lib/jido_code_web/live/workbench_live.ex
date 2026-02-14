@@ -1,7 +1,14 @@
 defmodule JidoCodeWeb.WorkbenchLive do
   use JidoCodeWeb, :live_view
 
-  alias JidoCode.Workbench.{FixWorkflowKickoff, Inventory, IssueTriageWorkflowKickoff}
+  alias JidoCode.Orchestration.RunPubSub
+
+  alias JidoCode.Workbench.{
+    FixWorkflowKickoff,
+    Inventory,
+    IssueTriageWorkflowKickoff,
+    RunOutcomes
+  }
 
   @fallback_row_id_prefix "workbench-row-"
   @filter_validation_error_type "workbench_filter_values_invalid"
@@ -42,6 +49,12 @@ defmodule JidoCodeWeb.WorkbenchLive do
   @default_freshness_filter_value Map.fetch!(@default_filter_values, "freshness_window")
   @default_sort_order_value Map.fetch!(@default_filter_values, "sort_order")
   @filter_state_query_keys ["project_id", "work_state", "freshness_window", "sort_order"]
+  @run_events_for_outcome_refresh MapSet.new([
+                                    "run_started",
+                                    "run_completed",
+                                    "run_failed",
+                                    "run_cancelled"
+                                  ])
 
   @impl true
   def mount(params, _session, socket) do
@@ -57,12 +70,14 @@ defmodule JidoCodeWeb.WorkbenchLive do
       |> assign(:sort_validation_notice, nil)
       |> assign(:fix_workflow_kickoff_states, %{})
       |> assign(:issue_triage_workflow_kickoff_states, %{})
+      |> assign(:recent_run_outcomes, %{})
       |> assign(:filter_values, initial_filter_values)
       |> assign(:filter_form, to_filter_form(initial_filter_values))
       |> assign(:filter_chips, filter_chips(initial_filter_values, []))
       |> assign(:project_filter_options, project_filter_options([]))
       |> stream(:inventory_rows, [], reset: true)
       |> load_inventory()
+      |> maybe_subscribe_run_events()
 
     {:ok, socket}
   end
@@ -142,6 +157,7 @@ defmodule JidoCodeWeb.WorkbenchLive do
     socket =
       socket
       |> put_fix_workflow_kickoff_state(state_project_id, context_item_type, kickoff_result)
+      |> put_recent_run_outcome_from_kickoff(state_project_id, kickoff_result)
       |> refresh_project_row(project_row)
 
     {:noreply, socket}
@@ -176,9 +192,24 @@ defmodule JidoCodeWeb.WorkbenchLive do
     socket =
       socket
       |> put_issue_triage_workflow_kickoff_state(state_project_id, :issue, kickoff_result)
+      |> put_recent_run_outcome_from_kickoff(state_project_id, kickoff_result)
       |> refresh_project_row(project_row)
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:run_event, payload}, socket) do
+    event_name =
+      payload
+      |> map_get("event", :event)
+      |> normalize_optional_string()
+
+    if MapSet.member?(@run_events_for_outcome_refresh, event_name) do
+      {:noreply, refresh_recent_run_outcomes(socket)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -372,6 +403,10 @@ defmodule JidoCodeWeb.WorkbenchLive do
                       target={project_detail_path(project, @filter_values)}
                       disabled_reason={project_detail_unavailable_reason()}
                     />
+                    <.recent_run_outcome_indicator
+                      outcome={recent_run_outcome(@recent_run_outcomes, project.id)}
+                      dom_prefix={"workbench-project-issues-run-outcome-#{project.id}"}
+                    />
                     <%= if Map.get(triage_policy_state, :enabled, true) do %>
                       <button
                         id={"workbench-project-issues-triage-action-#{project.id}"}
@@ -441,6 +476,10 @@ defmodule JidoCodeWeb.WorkbenchLive do
                       target={project_detail_path(project, @filter_values)}
                       disabled_reason={project_detail_unavailable_reason()}
                     />
+                    <.recent_run_outcome_indicator
+                      outcome={recent_run_outcome(@recent_run_outcomes, project.id)}
+                      dom_prefix={"workbench-project-prs-run-outcome-#{project.id}"}
+                    />
                     <button
                       id={"workbench-project-prs-fix-action-#{project.id}"}
                       type="button"
@@ -484,6 +523,7 @@ defmodule JidoCodeWeb.WorkbenchLive do
         socket
         |> assign(:inventory_rows_all, rows)
         |> assign(:stale_warning, stale_warning)
+        |> assign(:recent_run_outcomes, load_recent_run_outcomes(rows))
         |> assign(:project_filter_options, project_filter_options(rows))
         |> apply_filters(filter_values)
 
@@ -499,6 +539,7 @@ defmodule JidoCodeWeb.WorkbenchLive do
         |> assign(:inventory_total_count, 0)
         |> assign(:inventory_rows_all, [])
         |> assign(:stale_warning, stale_warning)
+        |> assign(:recent_run_outcomes, %{})
         |> assign(:sort_validation_notice, nil)
         |> assign(:project_filter_options, project_filter_options([]))
         |> assign(:filter_values, filter_values)
@@ -507,6 +548,31 @@ defmodule JidoCodeWeb.WorkbenchLive do
         |> stream(:inventory_rows, [], reset: true)
     end
   end
+
+  defp maybe_subscribe_run_events(socket) do
+    if connected?(socket) do
+      :ok = RunPubSub.subscribe_runs()
+      socket
+    else
+      socket
+    end
+  end
+
+  defp refresh_recent_run_outcomes(socket) do
+    rows = Map.get(socket.assigns, :inventory_rows_all, [])
+
+    filter_values =
+      socket.assigns
+      |> Map.get(:filter_values, @default_filter_values)
+      |> normalize_filter_values()
+
+    socket
+    |> assign(:recent_run_outcomes, load_recent_run_outcomes(rows))
+    |> apply_filters(filter_values)
+  end
+
+  defp load_recent_run_outcomes(rows) when is_list(rows), do: RunOutcomes.load(rows)
+  defp load_recent_run_outcomes(_rows), do: %{}
 
   defp apply_filter_event(socket, filter_params) do
     filter_values = normalize_filter_values(filter_params)
@@ -1071,6 +1137,74 @@ defmodule JidoCodeWeb.WorkbenchLive do
     update(socket, :issue_triage_workflow_kickoff_states, &Map.put(&1, state_key, state_value))
   end
 
+  defp put_recent_run_outcome_from_kickoff(socket, project_id, kickoff_result) do
+    normalized_project_id = normalize_optional_string(project_id)
+
+    if is_binary(normalized_project_id) do
+      case kickoff_run_outcome(kickoff_result, normalized_project_id) do
+        %{} = outcome ->
+          update(socket, :recent_run_outcomes, &Map.put(&1, normalized_project_id, outcome))
+
+        _other ->
+          socket
+      end
+    else
+      socket
+    end
+  end
+
+  defp kickoff_run_outcome({:ok, kickoff_run}, project_id) when is_map(kickoff_run) do
+    run_id =
+      kickoff_run
+      |> map_get("run_id", :run_id)
+      |> normalize_optional_string()
+
+    detail_path =
+      kickoff_run
+      |> map_get("detail_path", :detail_path)
+      |> normalize_optional_string() || run_detail_path(project_id, run_id)
+
+    if run_id && detail_path do
+      %{
+        status: "pending",
+        run_id: run_id,
+        detail_path: detail_path,
+        error_type: nil,
+        detail: nil,
+        guidance: nil
+      }
+    end
+  end
+
+  defp kickoff_run_outcome({:error, kickoff_error}, project_id) when is_map(kickoff_error) do
+    run_creation_state =
+      kickoff_error
+      |> map_get("run_creation_state", :run_creation_state)
+      |> normalize_run_creation_state()
+
+    run_id =
+      kickoff_error
+      |> map_get("run_id", :run_id)
+      |> normalize_optional_string()
+
+    case {run_creation_state, run_id} do
+      {:created, resolved_run_id} when is_binary(resolved_run_id) ->
+        %{
+          status: "pending",
+          run_id: resolved_run_id,
+          detail_path: run_detail_path(project_id, resolved_run_id),
+          error_type: nil,
+          detail: nil,
+          guidance: nil
+        }
+
+      _other ->
+        nil
+    end
+  end
+
+  defp kickoff_run_outcome(_kickoff_result, _project_id), do: nil
+
   defp kickoff_feedback_state({:ok, kickoff_run}, _project_id) when is_map(kickoff_run) do
     %{status: :ok, run: kickoff_run, confirmation_state: :confirmed}
   end
@@ -1098,7 +1232,11 @@ defmodule JidoCodeWeb.WorkbenchLive do
         }
 
       {:not_created, _resolved_run_id} ->
-        %{status: :error, error: kickoff_error, confirmation_state: :not_created_after_interruption}
+        %{
+          status: :error,
+          error: kickoff_error,
+          confirmation_state: :not_created_after_interruption
+        }
 
       _other ->
         %{status: :error, error: kickoff_error, confirmation_state: :failed}
@@ -1171,6 +1309,89 @@ defmodule JidoCodeWeb.WorkbenchLive do
   defp normalize_run_creation_state(:not_created), do: :not_created
   defp normalize_run_creation_state("not_created"), do: :not_created
   defp normalize_run_creation_state(_run_creation_state), do: nil
+
+  defp recent_run_outcome(outcomes, project_id) when is_map(outcomes) do
+    normalized_project_id = normalize_optional_string(project_id)
+
+    if normalized_project_id do
+      Map.get(outcomes, normalized_project_id)
+    end
+  end
+
+  defp recent_run_outcome(_outcomes, _project_id), do: nil
+
+  attr(:outcome, :map, default: nil)
+  attr(:dom_prefix, :string, required: true)
+
+  defp recent_run_outcome_indicator(assigns) do
+    ~H"""
+    <section id={"#{@dom_prefix}-container"} class="space-y-1 pt-1">
+      <p id={"#{@dom_prefix}-label"} class="text-[11px] text-base-content/70">
+        Recent run outcome
+      </p>
+      <%= case @outcome do %>
+        <% nil -> %>
+          <p id={"#{@dom_prefix}-status"} class="text-[11px] text-base-content/60">
+            No recent run.
+          </p>
+        <% %{status: "unknown"} = outcome -> %>
+          <p id={"#{@dom_prefix}-status"} class="text-[11px] text-warning">
+            Recent run status: unknown
+          </p>
+          <p :if={is_binary(outcome.error_type)} id={"#{@dom_prefix}-error-type"} class="text-[11px] text-warning">
+            Typed run outcome warning: {outcome.error_type}
+          </p>
+          <p :if={is_binary(outcome.detail)} id={"#{@dom_prefix}-detail"} class="text-[11px] text-warning">
+            {outcome.detail}
+          </p>
+          <p id={"#{@dom_prefix}-guidance"} class="text-[11px] text-base-content/60">
+            {outcome.guidance || "Refresh workbench data to resolve recent run status."}
+          </p>
+          <.link
+            :if={is_binary(outcome.detail_path)}
+            id={"#{@dom_prefix}-link"}
+            class="link link-primary text-[11px]"
+            href={outcome.detail_path}
+          >
+            Open run detail
+          </.link>
+        <% outcome -> %>
+          <p id={"#{@dom_prefix}-status"} class="text-[11px]">
+            <span class={run_outcome_status_badge_class(outcome.status)}>
+              {run_outcome_status_label(outcome.status)}
+            </span>
+          </p>
+          <p id={"#{@dom_prefix}-run-id"} class="text-[11px] text-base-content/70">
+            Run: <span class="font-mono">{outcome.run_id}</span>
+          </p>
+          <.link
+            id={"#{@dom_prefix}-link"}
+            class="link link-primary text-[11px]"
+            href={outcome.detail_path}
+          >
+            Open run detail
+          </.link>
+      <% end %>
+    </section>
+    """
+  end
+
+  defp run_outcome_status_badge_class("completed"), do: "badge badge-success badge-xs"
+  defp run_outcome_status_badge_class("running"), do: "badge badge-info badge-xs"
+  defp run_outcome_status_badge_class("failed"), do: "badge badge-error badge-xs"
+  defp run_outcome_status_badge_class("cancelled"), do: "badge badge-warning badge-xs"
+  defp run_outcome_status_badge_class("awaiting_approval"), do: "badge badge-warning badge-xs"
+  defp run_outcome_status_badge_class("pending"), do: "badge badge-outline badge-xs"
+  defp run_outcome_status_badge_class(_status), do: "badge badge-outline badge-xs"
+
+  defp run_outcome_status_label(status) do
+    status
+    |> normalize_optional_string()
+    |> case do
+      nil -> "unknown"
+      normalized_status -> normalized_status
+    end
+  end
 
   attr(:feedback, :map, default: nil)
   attr(:dom_prefix, :string, required: true)

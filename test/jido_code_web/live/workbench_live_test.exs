@@ -5,6 +5,7 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
 
   alias AshAuthentication.{Info, Strategy}
   alias JidoCode.Accounts.User
+  alias JidoCode.Orchestration.{RunPubSub, WorkflowRun}
   alias JidoCode.Projects.Project
 
   setup do
@@ -16,6 +17,9 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
 
     original_issue_triage_workflow_launcher =
       Application.get_env(:jido_code, :workbench_issue_triage_workflow_launcher, :__missing__)
+
+    original_recent_run_outcome_loader =
+      Application.get_env(:jido_code, :workbench_recent_run_outcome_loader, :__missing__)
 
     original_system_config_loader =
       Application.get_env(:jido_code, :system_config_loader, :__missing__)
@@ -38,6 +42,11 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
       restore_env(
         :workbench_issue_triage_workflow_launcher,
         original_issue_triage_workflow_launcher
+      )
+
+      restore_env(
+        :workbench_recent_run_outcome_loader,
+        original_recent_run_outcome_loader
       )
 
       restore_env(:system_config_loader, original_system_config_loader)
@@ -151,6 +160,222 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
     assert has_element?(view, "#workbench-project-recent-activity-#{project_two.id}")
 
     refute has_element?(view, "#workbench-stale-warning")
+  end
+
+  test "renders recent run outcome indicators with run detail links for issue and PR context rows",
+       %{
+         conn: _conn
+       } do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-outcomes",
+        github_full_name: "owner/repo-run-outcomes",
+        default_branch: "main",
+        settings: %{
+          "inventory" => %{
+            "open_issue_count" => 2,
+            "open_pr_count" => 1,
+            "recent_activity_summary" => "Recent automation signals are available."
+          }
+        }
+      })
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {:ok, run} =
+      create_workbench_run(
+        project.id,
+        "workbench-recent-run-#{System.unique_integer([:positive])}",
+        DateTime.add(now, -180, :second)
+      )
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "execute_changes",
+        transitioned_at: DateTime.add(now, -120, :second)
+      })
+
+    {:ok, completed_run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :completed,
+        current_step: "publish_pr",
+        transitioned_at: DateTime.add(now, -60, :second)
+      })
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/workbench", on_error: :warn)
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-status",
+             "completed"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-link[href='/projects/#{project.id}/runs/#{completed_run.run_id}']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-run-outcome-#{project.id}-status",
+             "completed"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-run-outcome-#{project.id}-link[href='/projects/#{project.id}/runs/#{completed_run.run_id}']"
+           )
+  end
+
+  test "refreshes run outcome indicators after kickoff and terminal run events", %{conn: _conn} do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-refresh",
+        github_full_name: "owner/repo-run-refresh",
+        default_branch: "main",
+        settings: %{
+          "inventory" => %{
+            "open_issue_count" => 3,
+            "open_pr_count" => 2,
+            "recent_activity_summary" => "Outcome refresh signals are active."
+          }
+        }
+      })
+
+    run_id = "workbench-refresh-run-#{System.unique_integer([:positive])}"
+    run_detail_path = "/projects/#{project.id}/runs/#{run_id}"
+    loader_state = start_supervised!({Agent, fn -> :initial end}, id: make_ref())
+
+    Application.put_env(:jido_code, :workbench_recent_run_outcome_loader, fn _rows ->
+      case Agent.get(loader_state, & &1) do
+        :terminal ->
+          %{
+            project.id => %{
+              status: "completed",
+              run_id: run_id,
+              detail_path: run_detail_path
+            }
+          }
+
+        _other ->
+          %{}
+      end
+    end)
+
+    Application.put_env(:jido_code, :workbench_fix_workflow_launcher, fn _kickoff_request ->
+      {:ok, %{run_id: run_id}}
+    end)
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/workbench", on_error: :warn)
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-status",
+             "No recent run"
+           )
+
+    view
+    |> element("#workbench-project-issues-fix-action-#{project.id}")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-status",
+             "pending"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-link[href='#{run_detail_path}']"
+           )
+
+    Agent.update(loader_state, fn _current_state -> :terminal end)
+
+    assert :ok =
+             RunPubSub.broadcast_run_event(run_id, %{
+               "event" => "run_completed",
+               "run_id" => run_id
+             })
+
+    assert_eventually(fn ->
+      has_element?(
+        view,
+        "#workbench-project-issues-run-outcome-#{project.id}-status",
+        "completed"
+      )
+    end)
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-run-outcome-#{project.id}-status",
+             "completed"
+           )
+  end
+
+  test "shows unknown run outcome state with refresh guidance when status is unresolved", %{
+    conn: _conn
+  } do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-unknown-outcome",
+        github_full_name: "owner/repo-unknown-outcome",
+        default_branch: "main",
+        settings: %{
+          "inventory" => %{
+            "open_issue_count" => 4,
+            "open_pr_count" => 0,
+            "recent_activity_summary" => "Run status resolution failed."
+          }
+        }
+      })
+
+    Application.put_env(:jido_code, :workbench_recent_run_outcome_loader, fn _rows ->
+      %{
+        project.id => %{
+          status: "mystery_status",
+          run_id: "run-unknown-#{System.unique_integer([:positive])}",
+          detail: "Recent run metadata is incomplete.",
+          error_type: "workbench_recent_run_status_unresolved",
+          guidance: "Refresh workbench data to resolve recent run status."
+        }
+      }
+    end)
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/workbench", on_error: :warn)
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-status",
+             "unknown"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-error-type",
+             "workbench_recent_run_status_unresolved"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-run-outcome-#{project.id}-guidance",
+             "Refresh workbench data"
+           )
   end
 
   test "shows stale-state warning and recovery actions when workbench data fetch fails", %{
@@ -1220,6 +1445,39 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
 
     assert has_element?(view, "#workbench-project-name-owner-repo-one", "owner/repo-one")
     assert has_element?(view, "#workbench-project-name-owner-repo-two", "owner/repo-two")
+  end
+
+  defp create_workbench_run(project_id, run_id, started_at) do
+    WorkflowRun.create(%{
+      project_id: project_id,
+      run_id: run_id,
+      workflow_name: "fix_failing_tests",
+      workflow_version: 1,
+      trigger: %{source: "workbench", mode: "manual"},
+      inputs: %{"failure_signal" => "workbench indicator test"},
+      input_metadata: %{"failure_signal" => %{required: true, source: "workbench_quick_action"}},
+      initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+      current_step: "queued",
+      started_at: started_at
+    })
+  end
+
+  defp assert_eventually(assertion_fun, attempts \\ 20)
+
+  defp assert_eventually(assertion_fun, attempts) when attempts > 0 do
+    if assertion_fun.() do
+      :ok
+    else
+      receive do
+      after
+        25 ->
+          assert_eventually(assertion_fun, attempts - 1)
+      end
+    end
+  end
+
+  defp assert_eventually(_assertion_fun, 0) do
+    flunk("expected condition to become true")
   end
 
   defp register_owner(email, password) do
