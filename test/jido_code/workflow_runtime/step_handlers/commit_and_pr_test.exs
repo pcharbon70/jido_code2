@@ -951,4 +951,152 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
 
     assert Agent.get(commit_probe_calls, & &1) == 0
   end
+
+  test "push auth failure refreshes GitHub auth and retries once without duplicating commit side effects" do
+    commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
+    push_attempt_calls = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+    auth_refresh_calls = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+
+    commit_probe = fn _branch_context ->
+      Agent.update(commit_probe_calls, &(&1 + 1))
+    end
+
+    push_runner = fn _args, branch_context ->
+      Agent.update(push_attempt_calls, fn calls -> [branch_context | calls] end)
+
+      case branch_context.push_attempt do
+        1 ->
+          {:error, %{reason_type: "push_auth_failed", detail: "installation token expired"}}
+
+        2 ->
+          {:ok,
+           %{
+             status: "pushed",
+             remote: "origin",
+             detail: "Push retried successfully after auth refresh."
+           }}
+      end
+    end
+
+    github_auth_refresh_runner = fn _args, branch_context ->
+      Agent.update(auth_refresh_calls, fn calls -> [branch_context | calls] end)
+      {:ok, %{status: "refreshed", detail: "GitHub installation token renewed."}}
+    end
+
+    {:ok, result} =
+      CommitAndPR.execute(
+        nil,
+        %{
+          workflow_name: "Implement Task",
+          run_id: "run-push-auth-01",
+          workspace_clean: true
+        },
+        branch_setup_runner: fn _branch_context -> :ok end,
+        commit_probe: commit_probe,
+        push_runner: push_runner,
+        github_auth_refresh_runner: github_auth_refresh_runner
+      )
+
+    assert result.push.status == "pushed_after_auth_refresh_retry"
+    assert result.push.attempt_count == 2
+    assert result.push.retry_attempted == true
+    assert result.push.side_effect_safety.commit_repeated == false
+    assert result.push.side_effect_safety.branch_setup_repeated == false
+    assert result.push_auth_recovery.retry_attempted == true
+    assert result.push_auth_recovery.auth_refresh_attempted == true
+    assert result.push_auth_recovery.auth_refresh_status == "refreshed"
+    assert result.shipping_flow.completed_stage == "push_changes"
+    assert result.shipping_flow.next_stage == "create_pr"
+    assert Agent.get(commit_probe_calls, & &1) == 1
+
+    push_attempts = push_attempt_calls |> Agent.get(&Enum.reverse(&1))
+    assert length(push_attempts) == 2
+    assert Enum.map(push_attempts, &{&1.push_attempt, &1.push_retry}) == [{1, false}, {2, true}]
+
+    assert Enum.all?(push_attempts, fn push_attempt ->
+             push_attempt.branch_name == "jidocode/implement-task/run-push-auth-01"
+           end)
+
+    refresh_attempts = auth_refresh_calls |> Agent.get(&Enum.reverse(&1))
+    assert length(refresh_attempts) == 1
+    assert hd(refresh_attempts).branch_name == "jidocode/implement-task/run-push-auth-01"
+
+    assert Enum.map(result.run_logs, &{&1.event, &1.status, Map.get(&1, :attempt)}) == [
+             {"push_attempt", "failed", 1},
+             {"github_auth_refresh", "succeeded", nil},
+             {"push_attempt", "succeeded", 2}
+           ]
+  end
+
+  test "push auth retry failure returns typed auth error with preserved branch artifact" do
+    commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
+    push_attempt_calls = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+    auth_refresh_calls = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+
+    commit_probe = fn _branch_context ->
+      Agent.update(commit_probe_calls, &(&1 + 1))
+    end
+
+    push_runner = fn _args, branch_context ->
+      Agent.update(push_attempt_calls, fn calls -> [branch_context | calls] end)
+
+      {:error, %{reason_type: "push_auth_failed", detail: "GitHub rejected credentials."}}
+    end
+
+    github_auth_refresh_runner = fn _args, branch_context ->
+      Agent.update(auth_refresh_calls, fn calls -> [branch_context | calls] end)
+      {:ok, %{status: "refreshed", detail: "GitHub installation token renewed."}}
+    end
+
+    assert {:error, typed_error} =
+             CommitAndPR.execute(
+               nil,
+               %{
+                 workflow_name: "Implement Task",
+                 run_id: "run-push-auth-fail-01",
+                 workspace_clean: true
+               },
+               branch_setup_runner: fn _branch_context -> :ok end,
+               commit_probe: commit_probe,
+               push_runner: push_runner,
+               github_auth_refresh_runner: github_auth_refresh_runner
+             )
+
+    assert typed_error.error_type == "workflow_commit_and_pr_push_auth_failed"
+    assert typed_error.operation == "push_run_branch"
+    assert typed_error.reason_type == "push_auth_retry_failed"
+    assert typed_error.blocked_stage == "create_pr"
+    assert typed_error.blocked_actions == ["create_pr"]
+    assert typed_error.halted_before_pr == true
+    assert typed_error.branch_name == "jidocode/implement-task/run-push-auth-fail-01"
+
+    assert %{
+             branch_name: "jidocode/implement-task/run-push-auth-fail-01"
+           } = typed_error.preserved_branch_artifact
+
+    assert %{
+             strategy: "refresh_github_auth_once",
+             retry_limit: 1,
+             retry_attempted: true,
+             auth_refresh_attempted: true,
+             auth_refresh_status: "refreshed",
+             initial_reason_type: "push_auth_failed",
+             retry_reason_type: "push_auth_failed"
+           } = typed_error.push_auth_recovery
+
+    assert Agent.get(commit_probe_calls, & &1) == 1
+
+    push_attempts = push_attempt_calls |> Agent.get(&Enum.reverse(&1))
+    assert length(push_attempts) == 2
+    assert Enum.map(push_attempts, &{&1.push_attempt, &1.push_retry}) == [{1, false}, {2, true}]
+
+    refresh_attempts = auth_refresh_calls |> Agent.get(&Enum.reverse(&1))
+    assert length(refresh_attempts) == 1
+
+    assert Enum.map(typed_error.run_logs, &{&1.event, &1.status, Map.get(&1, :attempt)}) == [
+             {"push_attempt", "failed", 1},
+             {"github_auth_refresh", "succeeded", nil},
+             {"push_attempt", "failed", 2}
+           ]
+  end
 end
