@@ -264,6 +264,7 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     |> Ash.Changeset.force_change_attribute(:status, to_status)
     |> Ash.Changeset.force_change_attribute(:current_step, current_step)
     |> Ash.Changeset.force_change_attribute(:status_transitions, status_transitions)
+    |> maybe_capture_approval_context(to_status)
     |> maybe_set_started_at(to_status, transitioned_at)
     |> maybe_set_completed_at(to_status, transitioned_at)
     |> publish_transition_events(from_status, to_status, current_step, transitioned_at)
@@ -396,6 +397,128 @@ defmodule JidoCode.Orchestration.WorkflowRun do
     )
   end
 
+  defp maybe_capture_approval_context(changeset, :awaiting_approval) do
+    step_results =
+      changeset
+      |> Ash.Changeset.get_data(:step_results)
+      |> normalize_step_results()
+
+    case build_approval_context(step_results) do
+      {:ok, approval_context} ->
+        changeset
+        |> Ash.Changeset.force_change_attribute(
+          :step_results,
+          Map.put(step_results, "approval_context", approval_context)
+        )
+        |> clear_approval_context_diagnostics()
+
+      {:error, diagnostic} ->
+        changeset
+        |> Ash.Changeset.force_change_attribute(:step_results, Map.delete(step_results, "approval_context"))
+        |> capture_approval_context_diagnostic(diagnostic)
+    end
+  end
+
+  defp maybe_capture_approval_context(changeset, _to_status), do: changeset
+
+  defp build_approval_context(step_results) when is_map(step_results) do
+    context_source =
+      step_results
+      |> map_get(:approval_context, "approval_context", %{})
+      |> normalize_map()
+
+    case approval_context_generation_error(step_results, context_source) do
+      nil ->
+        diff_summary =
+          context_source
+          |> map_get(:diff_summary, "diff_summary", map_get(step_results, :diff_summary, "diff_summary"))
+          |> normalize_summary("Diff summary unavailable. Generate a git diff summary and retry.")
+
+        test_summary =
+          context_source
+          |> map_get(:test_summary, "test_summary", map_get(step_results, :test_summary, "test_summary"))
+          |> normalize_summary("Test summary unavailable. Capture test output and retry.")
+
+        risk_notes =
+          context_source
+          |> map_get(:risk_notes, "risk_notes", map_get(step_results, :risk_notes, "risk_notes"))
+          |> normalize_risk_notes([
+            "No explicit risk notes were provided. Review the diff and test summary before approving."
+          ])
+
+        {:ok,
+         %{
+           "diff_summary" => diff_summary,
+           "test_summary" => test_summary,
+           "risk_notes" => risk_notes
+         }}
+
+      reason ->
+        {:error, approval_context_generation_diagnostic(reason)}
+    end
+  end
+
+  defp build_approval_context(_step_results) do
+    {:error, approval_context_generation_diagnostic("Step results are unavailable for approval payload generation.")}
+  end
+
+  defp approval_context_generation_error(step_results, context_source) do
+    step_results
+    |> map_get(
+      :approval_context_generation_error,
+      "approval_context_generation_error",
+      map_get(context_source, :generation_error, "generation_error")
+    )
+    |> normalize_optional_string()
+  end
+
+  defp approval_context_generation_diagnostic(reason) do
+    %{
+      "error_type" => "approval_context_generation_failed",
+      "operation" => "build_approval_context",
+      "reason_type" => "approval_payload_blocked",
+      "message" => "Approval context generation failed and run remains blocked in awaiting_approval.",
+      "detail" => reason,
+      "remediation" =>
+        "Publish diff summary, test summary, and risk notes from prior steps, then regenerate approval context.",
+      "timestamp" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    }
+  end
+
+  defp capture_approval_context_diagnostic(changeset, diagnostic) do
+    existing_error =
+      changeset
+      |> changeset_attribute(:error)
+      |> normalize_error_map()
+
+    existing_diagnostics =
+      existing_error
+      |> Map.get("approval_context_diagnostics", [])
+      |> normalize_diagnostics()
+
+    Ash.Changeset.force_change_attribute(
+      changeset,
+      :error,
+      Map.put(existing_error, "approval_context_diagnostics", existing_diagnostics ++ [diagnostic])
+    )
+  end
+
+  defp clear_approval_context_diagnostics(changeset) do
+    existing_error =
+      changeset
+      |> changeset_attribute(:error)
+      |> normalize_error_map()
+      |> Map.delete("approval_context_diagnostics")
+
+    case existing_error do
+      map when map_size(map) == 0 ->
+        Ash.Changeset.force_change_attribute(changeset, :error, nil)
+
+      map ->
+        Ash.Changeset.force_change_attribute(changeset, :error, map)
+    end
+  end
+
   defp changeset_attribute(changeset, attribute) when is_atom(attribute) do
     case Ash.Changeset.get_attribute(changeset, attribute) do
       nil ->
@@ -429,6 +552,38 @@ defmodule JidoCode.Orchestration.WorkflowRun do
   end
 
   defp normalize_diagnostics(_diagnostics), do: []
+
+  defp normalize_step_results(%{} = step_results), do: step_results
+  defp normalize_step_results(_step_results), do: %{}
+
+  defp normalize_map(%{} = map), do: map
+  defp normalize_map(_value), do: %{}
+
+  defp normalize_summary(value, fallback) do
+    case normalize_optional_string(value) do
+      nil -> fallback
+      normalized_summary -> normalized_summary
+    end
+  end
+
+  defp normalize_risk_notes(value, fallback) when is_list(value) do
+    value
+    |> Enum.map(&normalize_optional_string/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> fallback
+      notes -> notes
+    end
+  end
+
+  defp normalize_risk_notes(value, fallback) do
+    value
+    |> normalize_optional_string()
+    |> case do
+      nil -> fallback
+      note -> [note]
+    end
+  end
 
   defp normalize_error_map(%{} = map), do: map
   defp normalize_error_map(_value), do: %{}
@@ -480,6 +635,35 @@ defmodule JidoCode.Orchestration.WorkflowRun do
 
   defp normalize_datetime(%DateTime{} = datetime), do: DateTime.truncate(datetime, :second)
   defp normalize_datetime(_datetime), do: DateTime.utc_now() |> DateTime.truncate(:second)
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(value) when is_boolean(value), do: nil
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized_value -> normalized_value
+    end
+  end
+
+  defp normalize_optional_string(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_optional_string()
+
+  defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_optional_string(value) when is_float(value), do: :erlang.float_to_binary(value)
+  defp normalize_optional_string(_value), do: nil
+
+  defp map_get(map, atom_key, string_key, default \\ nil)
+
+  defp map_get(map, atom_key, string_key, default) when is_map(map) do
+    cond do
+      Map.has_key?(map, atom_key) -> Map.get(map, atom_key)
+      Map.has_key?(map, string_key) -> Map.get(map, string_key)
+      true -> default
+    end
+  end
+
+  defp map_get(_map, _atom_key, _string_key, default), do: default
 
   defp stringify_status(nil), do: nil
   defp stringify_status(value) when is_atom(value), do: Atom.to_string(value)

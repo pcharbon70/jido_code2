@@ -121,6 +121,105 @@ defmodule JidoCode.Orchestration.WorkflowRunTest do
            ] = persisted_run.status_transitions
   end
 
+  test "builds approval context payload with diff test and risk summaries when entering awaiting_approval" do
+    {:ok, project} = create_project("owner/repo-approval-context")
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: "run-approval-context-#{System.unique_integer([:positive])}",
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Render approval payload"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 02:00:00Z],
+        step_results: %{
+          "diff_summary" => "3 files changed (+42/-8).",
+          "test_summary" => "mix test: 120 passed, 0 failed.",
+          "risk_notes" => [
+            "Touches workflow dispatch logic for approval gates.",
+            "No schema or credential writes detected."
+          ]
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-15 02:01:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :awaiting_approval,
+        current_step: "approval_gate",
+        transitioned_at: ~U[2026-02-15 02:02:00Z]
+      })
+
+    assert run.status == :awaiting_approval
+
+    assert %{
+             "diff_summary" => "3 files changed (+42/-8).",
+             "test_summary" => "mix test: 120 passed, 0 failed.",
+             "risk_notes" => [
+               "Touches workflow dispatch logic for approval gates.",
+               "No schema or credential writes detected."
+             ]
+           } = get_in(run.step_results, ["approval_context"])
+
+    assert [] == Map.get(run.error || %{}, "approval_context_diagnostics", [])
+  end
+
+  test "keeps run blocked with typed remediation diagnostics when approval context generation fails" do
+    {:ok, project} = create_project("owner/repo-approval-context-blocked")
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: "run-approval-context-blocked-#{System.unique_integer([:positive])}",
+        workflow_name: "implement_task",
+        workflow_version: 1,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Fail approval payload generation"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 03:00:00Z],
+        step_results: %{
+          "approval_context_generation_error" => "Git diff artifact is missing from prior step output."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-15 03:01:00Z]
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :awaiting_approval,
+        current_step: "approval_gate",
+        transitioned_at: ~U[2026-02-15 03:02:00Z]
+      })
+
+    assert run.status == :awaiting_approval
+    assert is_nil(get_in(run.step_results, ["approval_context"]))
+
+    assert [diagnostic] = get_in(run.error, ["approval_context_diagnostics"])
+    assert diagnostic["error_type"] == "approval_context_generation_failed"
+    assert diagnostic["operation"] == "build_approval_context"
+    assert diagnostic["reason_type"] == "approval_payload_blocked"
+    assert diagnostic["detail"] =~ "Git diff artifact is missing"
+    assert diagnostic["remediation"] =~ "diff summary"
+    assert {:ok, _timestamp, 0} = DateTime.from_iso8601(diagnostic["timestamp"])
+  end
+
   test "publishes required run topic events with run metadata across step approval and terminal transitions" do
     {:ok, project} = create_project("owner/repo-run-events")
 

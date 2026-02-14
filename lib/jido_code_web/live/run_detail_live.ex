@@ -12,7 +12,9 @@ defmodule JidoCodeWeb.RunDetailLive do
          |> assign(:project_id, project_id)
          |> assign(:run_id, run_id)
          |> assign(:run, run)
-         |> assign(:timeline_entries, timeline_entries(run))}
+         |> assign(:timeline_entries, timeline_entries(run))
+         |> assign(:approval_context, approval_context(run))
+         |> assign(:approval_context_blocker, approval_context_blocker(run))}
 
       {:ok, nil} ->
         {:ok, assign_missing_run(socket, project_id, run_id)}
@@ -40,6 +42,67 @@ defmodule JidoCodeWeb.RunDetailLive do
               Current step: {current_step_label(@run.current_step)}
             </p>
           </section>
+
+          <%= if awaiting_approval?(@run.status) do %>
+            <section id="run-detail-approval-panel" class="space-y-3 rounded border border-base-300 bg-base-100 p-4">
+              <h2 class="text-lg font-semibold">Approval request payload</h2>
+              <p id="run-detail-approval-panel-note" class="text-sm text-base-content/80">
+                Review this context before approval decisions are enabled.
+              </p>
+
+              <%= if @approval_context do %>
+                <div id="run-detail-approval-context" class="space-y-2 rounded border border-base-300 p-3">
+                  <p id="run-detail-approval-diff-summary" class="text-sm">
+                    Diff summary: {@approval_context.diff_summary}
+                  </p>
+                  <p id="run-detail-approval-test-summary" class="text-sm">
+                    Test summary: {@approval_context.test_summary}
+                  </p>
+                  <div class="space-y-1">
+                    <p class="text-sm font-medium">Risk notes</p>
+                    <ul id="run-detail-approval-risk-notes" class="list-disc pl-5 text-sm text-base-content/80">
+                      <li
+                        :for={{risk_note, index} <- Enum.with_index(@approval_context.risk_notes, 1)}
+                        id={"run-detail-approval-risk-note-#{index}"}
+                      >
+                        {risk_note}
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              <% else %>
+                <p id="run-detail-approval-context-missing" class="text-sm text-warning">
+                  Approval context is unavailable.
+                </p>
+              <% end %>
+
+              <%= if @approval_context_blocker do %>
+                <section
+                  id="run-detail-approval-context-error"
+                  class="space-y-1 rounded border border-error/40 bg-error/5 p-3"
+                >
+                  <p id="run-detail-approval-context-error-message" class="text-sm font-semibold text-error">
+                    {@approval_context_blocker.message}
+                  </p>
+                  <p id="run-detail-approval-context-error-detail" class="text-sm text-base-content/80">
+                    {@approval_context_blocker.detail}
+                  </p>
+                  <p id="run-detail-approval-context-remediation" class="text-sm text-base-content/80">
+                    {@approval_context_blocker.remediation}
+                  </p>
+                </section>
+              <% end %>
+
+              <div id="run-detail-approval-actions" class="flex gap-2">
+                <button id="run-detail-approve-button" type="button" class="btn btn-primary" disabled>
+                  Approve
+                </button>
+                <button id="run-detail-reject-button" type="button" class="btn btn-outline" disabled>
+                  Reject
+                </button>
+              </div>
+            </section>
+          <% end %>
 
           <section id="run-detail-timeline" class="space-y-2">
             <h2 class="text-lg font-semibold">Status timeline</h2>
@@ -87,6 +150,8 @@ defmodule JidoCodeWeb.RunDetailLive do
     |> assign(:run_id, run_id)
     |> assign(:run, nil)
     |> assign(:timeline_entries, [])
+    |> assign(:approval_context, nil)
+    |> assign(:approval_context_blocker, nil)
   end
 
   defp timeline_entries(%WorkflowRun{} = run) do
@@ -96,6 +161,73 @@ defmodule JidoCodeWeb.RunDetailLive do
   end
 
   defp timeline_entries(_run), do: []
+
+  defp approval_context(%WorkflowRun{} = run) do
+    step_results =
+      run
+      |> Map.get(:step_results, %{})
+      |> normalize_map()
+
+    context =
+      step_results
+      |> map_get(:approval_context, "approval_context")
+      |> normalize_map()
+
+    diff_summary =
+      context
+      |> map_get(:diff_summary, "diff_summary")
+      |> normalize_optional_string()
+
+    test_summary =
+      context
+      |> map_get(:test_summary, "test_summary")
+      |> normalize_optional_string()
+
+    risk_notes =
+      context
+      |> map_get(:risk_notes, "risk_notes")
+      |> normalize_risk_notes()
+
+    case {diff_summary, test_summary, risk_notes} do
+      {nil, nil, []} ->
+        nil
+
+      _other ->
+        %{
+          diff_summary: diff_summary || "Diff summary unavailable.",
+          test_summary: test_summary || "Test summary unavailable.",
+          risk_notes:
+            if(risk_notes == [],
+              do: ["Risk notes unavailable. Review changes carefully before approving."],
+              else: risk_notes
+            )
+        }
+    end
+  end
+
+  defp approval_context(_run), do: nil
+
+  defp approval_context_blocker(%WorkflowRun{} = run) do
+    diagnostics =
+      run
+      |> Map.get(:error, %{})
+      |> normalize_map()
+      |> Map.get("approval_context_diagnostics", [])
+      |> normalize_diagnostics()
+
+    diagnostics
+    |> List.last()
+    |> normalize_approval_context_diagnostic()
+  end
+
+  defp approval_context_blocker(_run), do: nil
+
+  defp awaiting_approval?(status) when is_atom(status), do: status == :awaiting_approval
+
+  defp awaiting_approval?(status) when is_binary(status),
+    do: String.trim(status) == "awaiting_approval"
+
+  defp awaiting_approval?(_status), do: false
 
   defp normalize_timeline_entries(entries) when is_list(entries) do
     Enum.map(entries, fn entry ->
@@ -117,6 +249,37 @@ defmodule JidoCodeWeb.RunDetailLive do
   end
 
   defp normalize_timeline_entries(_entries), do: []
+
+  defp normalize_approval_context_diagnostic(%{} = diagnostic) do
+    message =
+      diagnostic
+      |> map_get(:message, "message")
+      |> normalize_optional_string()
+
+    detail =
+      diagnostic
+      |> map_get(:detail, "detail")
+      |> normalize_optional_string()
+
+    remediation =
+      diagnostic
+      |> map_get(:remediation, "remediation")
+      |> normalize_optional_string()
+
+    if is_nil(message) and is_nil(detail) and is_nil(remediation) do
+      nil
+    else
+      %{
+        message: message || "Approval context generation failed.",
+        detail: detail || "Approval payload generation did not produce complete context.",
+        remediation:
+          remediation ||
+            "Regenerate approval payload data with diff, test, and risk summaries before retrying."
+      }
+    end
+  end
+
+  defp normalize_approval_context_diagnostic(_diagnostic), do: nil
 
   defp status_label(status) do
     status
@@ -148,6 +311,30 @@ defmodule JidoCodeWeb.RunDetailLive do
   end
 
   defp format_transitioned_at(_transitioned_at), do: "unknown"
+
+  defp normalize_map(%{} = map), do: map
+  defp normalize_map(_value), do: %{}
+
+  defp normalize_diagnostics(diagnostics) when is_list(diagnostics) do
+    Enum.filter(diagnostics, &is_map/1)
+  end
+
+  defp normalize_diagnostics(_diagnostics), do: []
+
+  defp normalize_risk_notes(value) when is_list(value) do
+    value
+    |> Enum.map(&normalize_optional_string/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_risk_notes(value) do
+    value
+    |> normalize_optional_string()
+    |> case do
+      nil -> []
+      risk_note -> [risk_note]
+    end
+  end
 
   defp map_get(map, atom_key, string_key, default \\ nil)
 

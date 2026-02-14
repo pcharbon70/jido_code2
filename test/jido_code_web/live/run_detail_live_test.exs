@@ -8,9 +8,13 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
   alias JidoCode.Orchestration.WorkflowRun
   alias JidoCode.Projects.Project
 
-  test "renders persisted status transition timeline entries with current step context", %{conn: _conn} do
+  test "renders persisted status transition timeline entries with current step context", %{
+    conn: _conn
+  } do
     register_owner("owner@example.com", "owner-password-123")
-    {authed_conn, _session_token} = authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
 
     {:ok, project} =
       Project.create(%{
@@ -70,6 +74,174 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
     assert has_element?(view, "#run-detail-timeline-transition-3", "awaiting_approval")
     assert has_element?(view, "#run-detail-timeline-step-3", "approval_gate")
     assert has_element?(view, "#run-detail-timeline-at-3", "2026-02-14T22:02:00Z")
+  end
+
+  test "renders approval payload context before approve or reject actions are enabled", %{
+    conn: _conn
+  } do
+    register_owner("approval-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("approval-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-approval",
+        github_full_name: "owner/repo-run-detail-approval",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: "run-detail-approval-#{System.unique_integer([:positive])}",
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Render approval payload"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-14 23:00:00Z],
+        step_results: %{
+          "diff_summary" => "3 files changed (+42/-8).",
+          "test_summary" => "mix test: 120 passed, 0 failed.",
+          "risk_notes" => [
+            "Touches approval gate orchestration.",
+            "No credential or secret writes detected."
+          ]
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-14 23:01:00Z]
+      })
+
+    {:ok, _run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :awaiting_approval,
+        current_step: "approval_gate",
+        transitioned_at: ~U[2026-02-14 23:02:00Z]
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{run.run_id}",
+        on_error: :warn
+      )
+
+    assert has_element?(view, "#run-detail-approval-panel")
+    assert has_element?(view, "#run-detail-approval-diff-summary", "3 files changed (+42/-8).")
+
+    assert has_element?(
+             view,
+             "#run-detail-approval-test-summary",
+             "mix test: 120 passed, 0 failed."
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-approval-risk-note-1",
+             "Touches approval gate orchestration."
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-approval-risk-note-2",
+             "No credential or secret writes detected."
+           )
+
+    assert has_element?(view, "#run-detail-approve-button[disabled]")
+    assert has_element?(view, "#run-detail-reject-button[disabled]")
+  end
+
+  test "shows explicit remediation guidance when approval context generation fails", %{
+    conn: _conn
+  } do
+    register_owner("approval-failure-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("approval-failure-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-approval-failure",
+        github_full_name: "owner/repo-run-detail-approval-failure",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    {:ok, run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: "run-detail-approval-failure-#{System.unique_integer([:positive])}",
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Block approval payload"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-14 23:10:00Z],
+        step_results: %{
+          "approval_context_generation_error" => "Git diff artifact is missing from prior step output."
+        }
+      })
+
+    {:ok, run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-14 23:11:00Z]
+      })
+
+    {:ok, _run} =
+      WorkflowRun.transition_status(run, %{
+        to_status: :awaiting_approval,
+        current_step: "approval_gate",
+        transitioned_at: ~U[2026-02-14 23:12:00Z]
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{run.run_id}",
+        on_error: :warn
+      )
+
+    assert has_element?(view, "#run-detail-status", "awaiting_approval")
+
+    assert has_element?(
+             view,
+             "#run-detail-approval-context-missing",
+             "Approval context is unavailable."
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-approval-context-error-message",
+             "Approval context generation failed"
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-approval-context-error-detail",
+             "Git diff artifact is missing from prior step output."
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-approval-context-remediation",
+             "Publish diff summary, test summary, and risk notes"
+           )
+
+    assert has_element?(view, "#run-detail-approve-button[disabled]")
+    assert has_element?(view, "#run-detail-reject-button[disabled]")
   end
 
   defp register_owner(email, password) do
