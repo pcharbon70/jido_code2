@@ -1,0 +1,701 @@
+defmodule JidoCode.WorkflowRuntime.ManualRunKickoff do
+  @moduledoc """
+  Validates and launches manual workflow runs from `/workflows`.
+  """
+
+  alias JidoCode.Projects.Project
+
+  @default_error_type "workflow_manual_run_creation_failed"
+  @validation_error_type "workflow_run_validation_failed"
+  @workflow_unsupported_error_type "workflow_template_unsupported"
+  @project_lookup_error_type "workflow_project_lookup_failed"
+
+  @validation_remediation """
+  Select a workflow template and provide all required inputs, then retry from `/workflows`.
+  """
+
+  @launcher_remediation """
+  Verify workflow runtime setup and retry kickoff from `/workflows`.
+  """
+
+  @project_lookup_remediation """
+  Ensure the project is imported and available, then retry kickoff from `/workflows`.
+  """
+
+  @supported_workflows [
+    %{
+      name: "implement_task",
+      label: "Implement task",
+      description: "Plan and implement an operator-scoped coding task.",
+      required_inputs: [
+        %{
+          name: :task_summary,
+          label: "Task summary",
+          placeholder: "Describe the task this run should implement."
+        }
+      ]
+    },
+    %{
+      name: "fix_failing_tests",
+      label: "Fix failing tests",
+      description: "Diagnose and repair a known failing test signal.",
+      required_inputs: [
+        %{
+          name: :failure_signal,
+          label: "Failure signal",
+          placeholder: "Provide the failing test name or error output."
+        }
+      ]
+    },
+    %{
+      name: "issue_triage",
+      label: "Issue triage and research",
+      description: "Run manual issue triage with operator-provided issue context.",
+      required_inputs: [
+        %{
+          name: :issue_reference,
+          label: "Issue reference",
+          placeholder: "Paste an issue URL or owner/repo#number reference."
+        }
+      ]
+    }
+  ]
+
+  @type field_error :: %{
+          field: String.t(),
+          error_type: String.t(),
+          detail: String.t()
+        }
+
+  @type kickoff_error :: %{
+          error_type: String.t(),
+          detail: String.t(),
+          remediation: String.t(),
+          field_errors: [field_error()]
+        }
+
+  @type kickoff_run :: %{
+          run_id: String.t(),
+          workflow_name: String.t(),
+          project_id: String.t(),
+          project_name: String.t(),
+          project_defaults: map(),
+          trigger: map(),
+          inputs: map(),
+          input_metadata: map(),
+          initiating_actor: map(),
+          detail_path: String.t(),
+          started_at: DateTime.t()
+        }
+
+  @spec supported_workflows() :: [map()]
+  def supported_workflows do
+    Enum.map(@supported_workflows, fn workflow ->
+      %{
+        name: workflow.name,
+        label: workflow.label,
+        description: workflow.description,
+        required_inputs:
+          Enum.map(workflow.required_inputs, fn input ->
+            %{
+              name: input.name,
+              label: input.label,
+              placeholder: input.placeholder
+            }
+          end)
+      }
+    end)
+  end
+
+  @spec project_options() :: [map()]
+  def project_options do
+    case load_projects() do
+      {:ok, projects} -> projects
+      {:error, _error} -> []
+    end
+  end
+
+  @spec kickoff(map() | nil, map() | nil) :: {:ok, kickoff_run()} | {:error, kickoff_error()}
+  def kickoff(run_params, initiating_actor) do
+    with {:ok, workflow_definition} <- workflow_definition(run_params),
+         {:ok, project_scope} <- project_scope(run_params),
+         {:ok, inputs, input_metadata} <- validate_required_inputs(workflow_definition, run_params),
+         kickoff_request <-
+           build_kickoff_request(
+             project_scope,
+             workflow_definition,
+             inputs,
+             input_metadata,
+             initiating_actor
+           ),
+         {:ok, kickoff_run} <- invoke_launcher(kickoff_request) do
+      {:ok, kickoff_run}
+    else
+      {:error, error} ->
+        {:error, normalize_error(error)}
+
+      other ->
+        {:error,
+         kickoff_error(
+           @default_error_type,
+           "Workflow run kickoff failed with an unexpected result (#{inspect(other)}).",
+           @launcher_remediation
+         )}
+    end
+  end
+
+  @doc false
+  @spec default_launcher(map()) :: {:ok, map()}
+  def default_launcher(_kickoff_request) do
+    {:ok,
+     %{
+       run_id: generated_run_id(),
+       started_at: DateTime.utc_now() |> DateTime.truncate(:second)
+     }}
+  end
+
+  @doc false
+  @spec default_project_loader() :: {:ok, [map()]} | {:error, kickoff_error()}
+  def default_project_loader do
+    case Project.read(query: [sort: [github_full_name: :asc]]) do
+      {:ok, projects} ->
+        {:ok,
+         projects
+         |> Enum.map(&to_project_option/1)
+         |> Enum.reject(&is_nil/1)}
+
+      {:error, reason} ->
+        {:error,
+         kickoff_error(
+           @project_lookup_error_type,
+           "Project lookup failed (#{format_reason(reason)}).",
+           @project_lookup_remediation
+         )}
+    end
+  end
+
+  defp workflow_definition(run_params) do
+    workflow_name =
+      run_params
+      |> map_get(:workflow_name, "workflow_name")
+      |> normalize_optional_string()
+
+    case Enum.find(@supported_workflows, fn workflow ->
+           workflow.name == workflow_name
+         end) do
+      %{} = workflow ->
+        {:ok, workflow}
+
+      nil when is_nil(workflow_name) ->
+        {:error,
+         validation_error(
+           "Workflow template is required before starting a run.",
+           [field_error("workflow_name", "required", "Select a workflow template.")]
+         )}
+
+      nil ->
+        {:error,
+         kickoff_error(
+           @workflow_unsupported_error_type,
+           "Workflow template #{inspect(workflow_name)} is not supported.",
+           @validation_remediation,
+           [field_error("workflow_name", "unsupported", "Choose one of the listed workflow templates.")]
+         )}
+    end
+  end
+
+  defp project_scope(run_params) do
+    case run_params |> map_get(:project_id, "project_id") |> normalize_optional_string() do
+      nil ->
+        {:error,
+         validation_error(
+           "Project scope is required before starting a workflow run.",
+           [field_error("project_id", "required", "Select a project to scope this run.")]
+         )}
+
+      project_id ->
+        with {:ok, projects} <- load_projects(),
+             {:ok, project_scope} <- find_project_scope(projects, project_id) do
+          {:ok, project_scope}
+        end
+    end
+  end
+
+  defp find_project_scope(projects, project_id) when is_list(projects) do
+    case Enum.find(projects, fn project ->
+           project
+           |> map_get(:id, "id")
+           |> normalize_optional_string() == project_id
+         end) do
+      %{} = project ->
+        resolved_project_id =
+          project
+          |> map_get(:id, "id")
+          |> normalize_optional_string() || project_id
+
+        project_name =
+          project
+          |> map_get(:name, "name")
+          |> normalize_optional_string()
+
+        github_full_name =
+          project
+          |> map_get(:github_full_name, "github_full_name")
+          |> normalize_optional_string()
+
+        default_branch =
+          project
+          |> map_get(:default_branch, "default_branch")
+          |> normalize_optional_string() || "main"
+
+        {:ok,
+         %{
+           project_id: resolved_project_id,
+           project_name: project_name || github_full_name || resolved_project_id,
+           github_full_name: github_full_name,
+           default_branch: default_branch
+         }}
+
+      nil ->
+        {:error,
+         validation_error(
+           "Project #{project_id} was not found.",
+           [field_error("project_id", "not_found", "Select an imported project and retry kickoff.")]
+         )}
+    end
+  end
+
+  defp find_project_scope(_projects, _project_id) do
+    {:error,
+     kickoff_error(
+       @project_lookup_error_type,
+       "Project loader returned malformed project catalog data.",
+       @project_lookup_remediation
+     )}
+  end
+
+  defp load_projects do
+    loader =
+      Application.get_env(
+        :jido_code,
+        :workflow_manual_project_loader,
+        &__MODULE__.default_project_loader/0
+      )
+
+    if is_function(loader, 0) do
+      safe_invoke_project_loader(loader)
+    else
+      {:error,
+       kickoff_error(
+         @project_lookup_error_type,
+         "Workflow manual project loader configuration is invalid.",
+         @project_lookup_remediation
+       )}
+    end
+  end
+
+  defp safe_invoke_project_loader(loader) do
+    try do
+      case loader.() do
+        {:ok, projects} when is_list(projects) ->
+          {:ok, normalize_loaded_projects(projects)}
+
+        {:error, error} ->
+          {:error, normalize_project_lookup_error(error)}
+
+        other ->
+          {:error,
+           kickoff_error(
+             @project_lookup_error_type,
+             "Workflow manual project loader returned an invalid result (#{inspect(other)}).",
+             @project_lookup_remediation
+           )}
+      end
+    rescue
+      exception ->
+        {:error,
+         kickoff_error(
+           @project_lookup_error_type,
+           "Workflow manual project loader crashed (#{Exception.message(exception)}).",
+           @project_lookup_remediation
+         )}
+    catch
+      kind, reason ->
+        {:error,
+         kickoff_error(
+           @project_lookup_error_type,
+           "Workflow manual project loader threw #{inspect({kind, reason})}.",
+           @project_lookup_remediation
+         )}
+    end
+  end
+
+  defp normalize_loaded_projects(projects) do
+    projects
+    |> Enum.map(&to_project_option/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp validate_required_inputs(workflow_definition, run_params) do
+    required_inputs = Map.fetch!(workflow_definition, :required_inputs)
+
+    {errors, normalized_inputs, input_metadata} =
+      Enum.reduce(required_inputs, {[], %{}, %{}}, fn input, {errors, inputs, metadata} ->
+        input_name = Map.fetch!(input, :name)
+        input_name_string = Atom.to_string(input_name)
+        input_label = Map.fetch!(input, :label)
+
+        value =
+          run_params
+          |> map_get(input_name, input_name_string)
+          |> normalize_optional_string()
+
+        metadata_entry = %{
+          label: input_label,
+          required: true,
+          source: "manual_workflows_ui"
+        }
+
+        if is_binary(value) do
+          {
+            errors,
+            Map.put(inputs, input_name_string, value),
+            Map.put(metadata, input_name_string, metadata_entry)
+          }
+        else
+          {
+            [field_error(input_name_string, "required", "#{input_label} is required.") | errors],
+            inputs,
+            Map.put(metadata, input_name_string, metadata_entry)
+          }
+        end
+      end)
+
+    if errors == [] do
+      {:ok, normalized_inputs, input_metadata}
+    else
+      {:error,
+       validation_error(
+         "Workflow run validation failed because required inputs are missing.",
+         Enum.reverse(errors)
+       )}
+    end
+  end
+
+  defp build_kickoff_request(
+         project_scope,
+         workflow_definition,
+         inputs,
+         input_metadata,
+         initiating_actor
+       ) do
+    workflow_name = Map.fetch!(workflow_definition, :name)
+    project_id = Map.fetch!(project_scope, :project_id)
+
+    %{
+      workflow_name: workflow_name,
+      project_id: project_id,
+      project_name: Map.fetch!(project_scope, :project_name),
+      project_defaults: %{
+        default_branch: Map.fetch!(project_scope, :default_branch),
+        github_full_name: Map.get(project_scope, :github_full_name)
+      },
+      trigger: %{
+        source: "workflows",
+        mode: "manual",
+        source_row: %{
+          route: "/workflows",
+          project_id: project_id,
+          workflow_name: workflow_name
+        }
+      },
+      inputs: inputs,
+      input_metadata: input_metadata,
+      initiating_actor: normalize_initiating_actor(initiating_actor)
+    }
+  end
+
+  defp invoke_launcher(kickoff_request) do
+    launcher =
+      Application.get_env(
+        :jido_code,
+        :workflow_manual_run_launcher,
+        &__MODULE__.default_launcher/1
+      )
+
+    if is_function(launcher, 1) do
+      safe_invoke_launcher(launcher, kickoff_request)
+    else
+      {:error,
+       kickoff_error(
+         @default_error_type,
+         "Workflow manual run launcher configuration is invalid.",
+         @launcher_remediation
+       )}
+    end
+  end
+
+  defp safe_invoke_launcher(launcher, kickoff_request) do
+    try do
+      case launcher.(kickoff_request) do
+        {:ok, run_result} ->
+          normalize_run_result(run_result, kickoff_request)
+
+        {:error, error} ->
+          {:error, normalize_error(error)}
+
+        other ->
+          {:error,
+           kickoff_error(
+             @default_error_type,
+             "Workflow manual run launcher returned an invalid result (#{inspect(other)}).",
+             @launcher_remediation
+           )}
+      end
+    rescue
+      exception ->
+        {:error,
+         kickoff_error(
+           @default_error_type,
+           "Workflow manual run launcher crashed (#{Exception.message(exception)}).",
+           @launcher_remediation
+         )}
+    catch
+      kind, reason ->
+        {:error,
+         kickoff_error(
+           @default_error_type,
+           "Workflow manual run launcher threw #{inspect({kind, reason})}.",
+           @launcher_remediation
+         )}
+    end
+  end
+
+  defp normalize_run_result(run_result, kickoff_request) do
+    run_id = extract_run_id(run_result)
+
+    if is_binary(run_id) do
+      started_at =
+        run_result
+        |> map_get(:started_at, "started_at")
+        |> normalize_optional_datetime() ||
+          DateTime.utc_now() |> DateTime.truncate(:second)
+
+      project_id = Map.fetch!(kickoff_request, :project_id)
+
+      {:ok,
+       %{
+         run_id: run_id,
+         workflow_name: Map.fetch!(kickoff_request, :workflow_name),
+         project_id: project_id,
+         project_name: Map.fetch!(kickoff_request, :project_name),
+         project_defaults: Map.fetch!(kickoff_request, :project_defaults),
+         trigger: Map.fetch!(kickoff_request, :trigger),
+         inputs: Map.fetch!(kickoff_request, :inputs),
+         input_metadata: Map.fetch!(kickoff_request, :input_metadata),
+         initiating_actor: Map.fetch!(kickoff_request, :initiating_actor),
+         detail_path: "/projects/#{URI.encode(project_id)}/runs/#{URI.encode(run_id)}",
+         started_at: started_at
+       }}
+    else
+      {:error,
+       kickoff_error(
+         @default_error_type,
+         "Workflow run kickoff did not return a run identifier.",
+         @launcher_remediation
+       )}
+    end
+  end
+
+  defp extract_run_id(run_result) when is_binary(run_result),
+    do: normalize_optional_string(run_result)
+
+  defp extract_run_id(run_result) when is_map(run_result) do
+    run_result
+    |> map_get(:run_id, "run_id")
+    |> normalize_optional_string()
+  end
+
+  defp extract_run_id(_run_result), do: nil
+
+  defp to_project_option(project) when is_map(project) do
+    project_id =
+      project
+      |> map_get(:id, "id")
+      |> normalize_optional_string()
+
+    if is_binary(project_id) do
+      project_name =
+        project
+        |> map_get(:name, "name")
+        |> normalize_optional_string()
+
+      github_full_name =
+        project
+        |> map_get(:github_full_name, "github_full_name")
+        |> normalize_optional_string()
+
+      default_branch =
+        project
+        |> map_get(:default_branch, "default_branch")
+        |> normalize_optional_string() || "main"
+
+      %{
+        id: project_id,
+        name: project_name || github_full_name || project_id,
+        github_full_name: github_full_name || project_name || project_id,
+        default_branch: default_branch
+      }
+    end
+  end
+
+  defp to_project_option(_project), do: nil
+
+  defp validation_error(detail, field_errors) do
+    kickoff_error(@validation_error_type, detail, @validation_remediation, field_errors)
+  end
+
+  defp normalize_error(error) do
+    kickoff_error(
+      map_get(error, :error_type, "error_type", @default_error_type),
+      map_get(error, :detail, "detail", "Workflow run kickoff failed."),
+      map_get(error, :remediation, "remediation", @launcher_remediation),
+      map_get(error, :field_errors, "field_errors", [])
+    )
+  end
+
+  defp normalize_project_lookup_error(error) do
+    kickoff_error(
+      map_get(error, :error_type, "error_type", @project_lookup_error_type),
+      map_get(error, :detail, "detail", "Project lookup failed."),
+      map_get(error, :remediation, "remediation", @project_lookup_remediation),
+      map_get(error, :field_errors, "field_errors", [])
+    )
+  end
+
+  defp kickoff_error(error_type, detail, remediation, field_errors \\ []) do
+    %{
+      error_type: normalize_optional_string(error_type) || @default_error_type,
+      detail: normalize_optional_string(detail) || "Workflow run kickoff failed.",
+      remediation: normalize_optional_string(remediation) || @launcher_remediation,
+      field_errors: normalize_field_errors(field_errors)
+    }
+  end
+
+  defp normalize_field_errors(field_errors) when is_list(field_errors) do
+    field_errors
+    |> Enum.map(&normalize_field_error/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_field_errors(_field_errors), do: []
+
+  defp normalize_field_error(field_error) when is_map(field_error) do
+    field =
+      field_error
+      |> map_get(:field, "field")
+      |> normalize_optional_string()
+
+    if is_binary(field) do
+      %{
+        field: field,
+        error_type:
+          field_error
+          |> map_get(:error_type, "error_type")
+          |> normalize_optional_string() || "invalid",
+        detail:
+          field_error
+          |> map_get(:detail, "detail")
+          |> normalize_optional_string() || "Invalid field value."
+      }
+    end
+  end
+
+  defp normalize_field_error(_field_error), do: nil
+
+  defp field_error(field, error_type, detail) do
+    %{
+      field: normalize_optional_string(field) || "unknown",
+      error_type: normalize_optional_string(error_type) || "invalid",
+      detail: normalize_optional_string(detail) || "Invalid field value."
+    }
+  end
+
+  defp normalize_initiating_actor(%{} = initiating_actor) do
+    %{
+      id:
+        initiating_actor
+        |> map_get(:id, "id")
+        |> normalize_optional_string() || "unknown",
+      email:
+        initiating_actor
+        |> map_get(:email, "email")
+        |> normalize_optional_string()
+    }
+  end
+
+  defp normalize_initiating_actor(_initiating_actor), do: %{id: "unknown", email: nil}
+
+  defp generated_run_id do
+    "run-#{System.unique_integer([:positive, :monotonic])}"
+  end
+
+  defp normalize_optional_datetime(%DateTime{} = datetime), do: datetime
+
+  defp normalize_optional_datetime(%NaiveDateTime{} = datetime) do
+    case DateTime.from_naive(datetime, "Etc/UTC") do
+      {:ok, parsed_datetime} -> parsed_datetime
+      _other -> nil
+    end
+  end
+
+  defp normalize_optional_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, parsed_datetime, _offset} ->
+        parsed_datetime
+
+      _other ->
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, parsed_naive_datetime} ->
+            normalize_optional_datetime(parsed_naive_datetime)
+
+          _fallback ->
+            nil
+        end
+    end
+  end
+
+  defp normalize_optional_datetime(_value), do: nil
+
+  defp format_reason(%{diagnostic: diagnostic}) when is_binary(diagnostic), do: diagnostic
+  defp format_reason(reason), do: inspect(reason)
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(value) when is_boolean(value), do: nil
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized_value -> normalized_value
+    end
+  end
+
+  defp normalize_optional_string(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_optional_string()
+
+  defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_optional_string(value) when is_float(value), do: :erlang.float_to_binary(value)
+  defp normalize_optional_string(_value), do: nil
+
+  defp map_get(map, atom_key, string_key, default \\ nil)
+
+  defp map_get(map, atom_key, string_key, default) when is_map(map) do
+    cond do
+      Map.has_key?(map, atom_key) -> Map.get(map, atom_key)
+      Map.has_key?(map, string_key) -> Map.get(map, string_key)
+      true -> default
+    end
+  end
+
+  defp map_get(_map, _atom_key, _string_key, default), do: default
+end
