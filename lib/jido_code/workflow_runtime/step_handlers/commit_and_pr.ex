@@ -16,6 +16,23 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
   @max_workflow_segment_length 32
   @max_short_run_id_length 24
   @hash_suffix_length 8
+  @branch_collision_retry_suffix_length 8
+  @branch_collision_retry_prefix "retry"
+  @branch_collision_retry_limit 1
+  @branch_collision_retry_strategy "deterministic_hash_suffix"
+  @branch_collision_reason_fragments [
+    "already exists",
+    "already_exists",
+    "branch exists",
+    "branch_exists",
+    "branch collision",
+    "branch_collision",
+    "reference already exists",
+    "reference_exists",
+    "remote branch exists",
+    "remote_branch_exists",
+    "name already in use"
+  ]
 
   @branch_setup_error_type "workflow_commit_and_pr_branch_setup_failed"
   @branch_setup_operation "setup_run_branch"
@@ -35,15 +52,18 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
   @impl true
   def execute(_sprite_client, args, opts) when is_map(args) and is_list(opts) do
     with {:ok, branch_context} <- derive_branch_context(args),
-         {:ok, branch_setup} <- setup_branch(branch_context, opts),
-         {:ok, workspace_policy_check} <- validate_workspace_cleanliness(args, branch_context) do
-      maybe_probe_commit(branch_context, opts)
+         {:ok, %{branch_context: resolved_branch_context, branch_setup: branch_setup}} <-
+           setup_branch(branch_context, opts),
+         {:ok, workspace_policy_check} <-
+           validate_workspace_cleanliness(args, resolved_branch_context) do
+      maybe_probe_commit(resolved_branch_context, opts)
 
       {:ok,
        %{
          run_artifacts: %{
-           branch_name: Map.fetch!(branch_context, :branch_name),
-           branch_derivation: Map.fetch!(branch_context, :branch_derivation),
+           branch_name: Map.fetch!(resolved_branch_context, :branch_name),
+           branch_derivation: Map.fetch!(resolved_branch_context, :branch_derivation),
+           collision_handling: branch_setup |> map_get(:collision_handling, "collision_handling") |> normalize_map(),
            policy_checks: %{
              workspace_cleanliness: workspace_policy_check
            }
@@ -168,6 +188,82 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
 
   defp safe_invoke_branch_setup_runner(branch_setup_runner, branch_context)
        when is_function(branch_setup_runner, 1) and is_map(branch_context) do
+    case invoke_branch_setup_runner(branch_setup_runner, branch_context) do
+      {:ok, branch_setup} ->
+        {:ok, %{branch_context: branch_context, branch_setup: branch_setup}}
+
+      {:error, first_failure} ->
+        maybe_retry_branch_collision(
+          branch_setup_runner,
+          branch_context,
+          normalize_map(first_failure)
+        )
+    end
+  end
+
+  defp maybe_retry_branch_collision(branch_setup_runner, branch_context, first_failure)
+       when is_function(branch_setup_runner, 1) and is_map(branch_context) and is_map(first_failure) do
+    first_failure_reason = map_get(first_failure, :reason, "reason")
+
+    if branch_collision_reason?(first_failure_reason) do
+      retry_branch_context = build_collision_retry_branch_context(branch_context, first_failure)
+
+      case invoke_branch_setup_runner(branch_setup_runner, retry_branch_context) do
+        {:ok, retry_branch_setup} ->
+          {:ok,
+           %{
+             branch_context: retry_branch_context,
+             branch_setup:
+               merge_collision_retry_success(
+                 retry_branch_setup,
+                 branch_context,
+                 retry_branch_context,
+                 first_failure
+               )
+           }}
+
+        {:error, retry_failure} ->
+          {:error,
+           branch_collision_retry_error(
+             branch_context,
+             retry_branch_context,
+             first_failure,
+             normalize_map(retry_failure)
+           )}
+      end
+    else
+      {:error,
+       branch_setup_error(
+         map_get(first_failure, :reason_type, "reason_type", "branch_setup_failed"),
+         map_get(
+           first_failure,
+           :detail,
+           "detail",
+           "Run branch creation failed and shipping halted before commit."
+         ),
+         branch_context,
+         first_failure_reason
+       )}
+    end
+  end
+
+  defp maybe_retry_branch_collision(_branch_setup_runner, branch_context, first_failure) do
+    {:error,
+     branch_setup_error(
+       map_get(first_failure, :reason_type, "reason_type", "branch_setup_failed"),
+       map_get(
+         first_failure,
+         :detail,
+         "detail",
+         "Run branch creation failed and shipping halted before commit."
+       ),
+       branch_context,
+       map_get(first_failure, :reason, "reason")
+     )}
+  end
+
+  defp invoke_branch_setup_runner(branch_setup_runner, branch_context)
+       when is_function(branch_setup_runner, 1) and is_map(branch_context) do
     try do
       case branch_setup_runner.(branch_context) do
         :ok ->
@@ -181,39 +277,234 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
 
         {:error, reason} ->
           {:error,
-           branch_setup_error(
-             "branch_setup_failed",
-             "Run branch creation failed and shipping halted before commit.",
-             branch_context,
-             reason
-           )}
+           %{
+             reason_type: "branch_setup_failed",
+             detail: "Run branch creation failed and shipping halted before commit.",
+             reason: reason
+           }}
 
         other ->
           {:error,
-           branch_setup_error(
-             "branch_setup_invalid_result",
-             "Branch setup runner returned an invalid result (#{inspect(other)}).",
-             branch_context
-           )}
+           %{
+             reason_type: "branch_setup_invalid_result",
+             detail: "Branch setup runner returned an invalid result (#{inspect(other)}).",
+             reason: other
+           }}
       end
     rescue
       exception ->
         {:error,
-         branch_setup_error(
-           "branch_setup_runner_crashed",
-           "Branch setup runner crashed (#{Exception.message(exception)}).",
-           branch_context
-         )}
+         %{
+           reason_type: "branch_setup_runner_crashed",
+           detail: "Branch setup runner crashed (#{Exception.message(exception)}).",
+           reason: exception
+         }}
     catch
       kind, reason ->
         {:error,
-         branch_setup_error(
-           "branch_setup_runner_threw",
-           "Branch setup runner threw #{inspect({kind, reason})}.",
-           branch_context
-         )}
+         %{
+           reason_type: "branch_setup_runner_threw",
+           detail: "Branch setup runner threw #{inspect({kind, reason})}.",
+           reason: {kind, reason}
+         }}
     end
   end
+
+  defp build_collision_retry_branch_context(branch_context, first_failure)
+       when is_map(branch_context) and is_map(first_failure) do
+    source_branch_name = branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+    retry_suffix = branch_collision_retry_suffix(source_branch_name)
+    retry_branch_name = build_collision_retry_branch_name(source_branch_name, retry_suffix)
+
+    branch_derivation =
+      branch_context
+      |> map_get(:branch_derivation, "branch_derivation")
+      |> normalize_map()
+      |> Map.put(:collision_retry_strategy, @branch_collision_retry_strategy)
+      |> Map.put(:collision_retry_suffix, retry_suffix)
+      |> Map.put(:collision_source_branch_name, source_branch_name)
+      |> Map.put(:collision_retry_branch_name, retry_branch_name)
+      |> Map.put(:collision_retry_attempt, 1)
+
+    collision_handling =
+      collision_handling_context(
+        source_branch_name,
+        retry_branch_name,
+        first_failure,
+        nil
+      )
+
+    branch_context
+    |> Map.put(:branch_name, retry_branch_name)
+    |> Map.put(:branch_derivation, branch_derivation)
+    |> Map.put(:collision_handling, collision_handling)
+  end
+
+  defp build_collision_retry_branch_context(branch_context, _first_failure), do: branch_context
+
+  defp merge_collision_retry_success(retry_branch_setup, branch_context, retry_branch_context, first_failure)
+       when is_map(retry_branch_context) and is_map(first_failure) do
+    source_branch_name = branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+    retry_branch_name = retry_branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+
+    retry_branch_setup
+    |> normalize_map()
+    |> Map.put(:status, "created_after_collision_retry")
+    |> Map.put(:branch_name, retry_branch_name)
+    |> Map.put(
+      :collision_handling,
+      collision_handling_context(source_branch_name, retry_branch_name, first_failure, nil)
+    )
+  end
+
+  defp merge_collision_retry_success(retry_branch_setup, _branch_context, _retry_branch_context, _first_failure),
+    do: normalize_map(retry_branch_setup)
+
+  defp branch_collision_retry_error(
+         branch_context,
+         retry_branch_context,
+         first_failure,
+         retry_failure
+       )
+       when is_map(branch_context) and is_map(retry_branch_context) and is_map(first_failure) and
+              is_map(retry_failure) do
+    source_branch_name = branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+    retry_branch_name = retry_branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+    retry_reason = map_get(retry_failure, :reason, "reason")
+
+    branch_setup_error(
+      "branch_collision_retry_failed",
+      "Run branch collision retry failed and shipping halted before commit.",
+      retry_branch_context,
+      retry_reason
+    )
+    |> Map.merge(%{
+      collision_handling:
+        collision_handling_context(
+          source_branch_name,
+          retry_branch_name,
+          first_failure,
+          retry_failure
+        ),
+      source_branch_name: source_branch_name,
+      retry_branch_name: retry_branch_name
+    })
+  end
+
+  defp branch_collision_reason?(reason) do
+    reason
+    |> collision_reason_fragments()
+    |> Enum.any?(fn fragment ->
+      Enum.any?(@branch_collision_reason_fragments, &String.contains?(fragment, &1))
+    end)
+  end
+
+  defp collision_reason_fragments(reason) when is_map(reason) do
+    [
+      map_get(reason, :reason_type, "reason_type"),
+      map_get(reason, :error_type, "error_type"),
+      map_get(reason, :detail, "detail"),
+      map_get(reason, :message, "message"),
+      map_get(reason, :reason, "reason")
+    ]
+    |> Enum.flat_map(&collision_reason_fragments/1)
+  end
+
+  defp collision_reason_fragments(reason) when is_tuple(reason) do
+    reason |> Tuple.to_list() |> Enum.flat_map(&collision_reason_fragments/1)
+  end
+
+  defp collision_reason_fragments(reason) when is_list(reason),
+    do: Enum.flat_map(reason, &collision_reason_fragments/1)
+
+  defp collision_reason_fragments(reason) when is_atom(reason) do
+    reason |> Atom.to_string() |> collision_reason_fragments()
+  end
+
+  defp collision_reason_fragments(reason) when is_binary(reason) do
+    [String.downcase(reason)]
+  end
+
+  defp collision_reason_fragments(reason) do
+    case normalize_optional_string(format_failure_reason(reason)) do
+      nil -> []
+      formatted_reason -> [String.downcase(formatted_reason)]
+    end
+  rescue
+    _exception -> []
+  end
+
+  defp branch_collision_retry_suffix(branch_name) when is_binary(branch_name) and branch_name != "" do
+    hash =
+      "collision:#{branch_name}"
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> String.slice(0, @branch_collision_retry_suffix_length)
+
+    "#{@branch_collision_retry_prefix}-#{hash}"
+  end
+
+  defp branch_collision_retry_suffix(_branch_name) do
+    random_fallback =
+      "collision:fallback"
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> String.slice(0, @branch_collision_retry_suffix_length)
+
+    "#{@branch_collision_retry_prefix}-#{random_fallback}"
+  end
+
+  defp build_collision_retry_branch_name(source_branch_name, retry_suffix)
+       when is_binary(source_branch_name) and source_branch_name != "" and is_binary(retry_suffix) and
+              retry_suffix != "" do
+    "#{source_branch_name}-#{retry_suffix}"
+  end
+
+  defp build_collision_retry_branch_name(source_branch_name, _retry_suffix),
+    do: source_branch_name
+
+  defp collision_handling_context(source_branch_name, retry_branch_name, first_failure, retry_failure)
+       when is_map(first_failure) do
+    %{
+      collision_detected: true,
+      strategy: @branch_collision_retry_strategy,
+      retry_limit: @branch_collision_retry_limit,
+      retry_attempted: true,
+      source_branch_name: source_branch_name,
+      retry_branch_name: retry_branch_name,
+      overwrite_existing_remote: false,
+      force_push: false,
+      initial_reason_type: first_failure |> map_get(:reason_type, "reason_type") |> normalize_reason_type(),
+      initial_reason: first_failure |> map_get(:reason, "reason") |> format_failure_reason()
+    }
+    |> maybe_add_retry_failure_context(retry_failure)
+  end
+
+  defp collision_handling_context(source_branch_name, retry_branch_name, _first_failure, _retry_failure) do
+    %{
+      collision_detected: true,
+      strategy: @branch_collision_retry_strategy,
+      retry_limit: @branch_collision_retry_limit,
+      retry_attempted: true,
+      source_branch_name: source_branch_name,
+      retry_branch_name: retry_branch_name,
+      overwrite_existing_remote: false,
+      force_push: false
+    }
+  end
+
+  defp maybe_add_retry_failure_context(collision_handling_context, retry_failure)
+       when is_map(collision_handling_context) and is_map(retry_failure) do
+    collision_handling_context
+    |> Map.put(
+      :retry_failure_reason_type,
+      retry_failure |> map_get(:reason_type, "reason_type") |> normalize_reason_type()
+    )
+    |> Map.put(:retry_failure_reason, retry_failure |> map_get(:reason, "reason") |> format_failure_reason())
+  end
+
+  defp maybe_add_retry_failure_context(collision_handling_context, _retry_failure),
+    do: collision_handling_context
 
   defp validate_workspace_cleanliness(args, branch_context)
        when is_map(args) and is_map(branch_context) do

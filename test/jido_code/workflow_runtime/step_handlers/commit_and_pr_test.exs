@@ -133,6 +133,132 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
     assert alpha_result.run_artifacts.policy_checks.workspace_cleanliness.status == "passed"
   end
 
+  test "branch collision retries once with deterministic suffix and non-destructive behavior" do
+    branch_setup_calls = start_supervised!({Agent, fn -> [] end})
+
+    branch_setup_runner = fn branch_context ->
+      Agent.update(branch_setup_calls, fn calls -> [branch_context | calls] end)
+
+      if branch_context.branch_name == "jidocode/implement-task/run-collision-42" do
+        {:error, %{reason_type: "branch_exists", detail: "Remote branch already exists."}}
+      else
+        {:ok,
+         %{
+           status: "created",
+           branch_name: branch_context.branch_name,
+           command_intent: "git checkout -b #{branch_context.branch_name}"
+         }}
+      end
+    end
+
+    args = %{
+      workflow_name: "Implement Task",
+      run_id: "run-collision-42",
+      environment_mode: :local,
+      workspace_clean: true
+    }
+
+    {:ok, first_result} =
+      CommitAndPR.execute(nil, args, branch_setup_runner: branch_setup_runner)
+
+    {:ok, second_result} =
+      CommitAndPR.execute(nil, args, branch_setup_runner: branch_setup_runner)
+
+    retry_branch_name = first_result.run_artifacts.branch_name
+
+    assert retry_branch_name =~
+             ~r/^jidocode\/implement-task\/run-collision-42-retry-[0-9a-f]{8}$/
+
+    assert first_result.run_artifacts.branch_name == second_result.run_artifacts.branch_name
+    assert first_result.branch_setup.status == "created_after_collision_retry"
+    assert first_result.branch_setup.command_intent =~ "git checkout -b "
+    refute first_result.branch_setup.command_intent =~ "--force"
+    refute first_result.branch_setup.command_intent =~ "-B "
+
+    assert %{
+             collision_detected: true,
+             strategy: "deterministic_hash_suffix",
+             retry_limit: 1,
+             retry_attempted: true,
+             source_branch_name: "jidocode/implement-task/run-collision-42",
+             retry_branch_name: ^retry_branch_name,
+             overwrite_existing_remote: false,
+             force_push: false
+           } = first_result.run_artifacts.collision_handling
+
+    assert first_result.branch_setup.collision_handling == first_result.run_artifacts.collision_handling
+
+    recorded_calls = branch_setup_calls |> Agent.get(&Enum.reverse(&1))
+
+    assert length(recorded_calls) == 4
+
+    assert Enum.count(recorded_calls, fn call ->
+             call.branch_name == "jidocode/implement-task/run-collision-42"
+           end) == 2
+
+    assert Enum.count(recorded_calls, fn call ->
+             call.branch_name == retry_branch_name
+           end) == 2
+
+    retry_call =
+      Enum.find(recorded_calls, fn call ->
+        call.branch_name == retry_branch_name
+      end)
+
+    assert retry_call.collision_handling.overwrite_existing_remote == false
+    assert retry_call.collision_handling.force_push == false
+  end
+
+  test "branch collision retry failure returns typed collision context and halts shipping" do
+    branch_setup_calls = start_supervised!({Agent, fn -> [] end})
+
+    branch_setup_runner = fn branch_context ->
+      Agent.update(branch_setup_calls, fn calls -> [branch_context | calls] end)
+      {:error, %{reason_type: "branch_exists", detail: "Remote branch already exists."}}
+    end
+
+    assert {:error, typed_error} =
+             CommitAndPR.execute(
+               nil,
+               %{
+                 workflow_name: "implement_task",
+                 run_id: "run-collision-fail",
+                 workspace_clean: true
+               },
+               branch_setup_runner: branch_setup_runner
+             )
+
+    assert typed_error.error_type == "workflow_commit_and_pr_branch_setup_failed"
+    assert typed_error.reason_type == "branch_collision_retry_failed"
+    assert typed_error.halted_before_commit == true
+    assert typed_error.source_branch_name == "jidocode/implement-task/run-collision-fail"
+
+    assert typed_error.retry_branch_name =~
+             ~r/^jidocode\/implement-task\/run-collision-fail-retry-[0-9a-f]{8}$/
+
+    assert typed_error.branch_name == typed_error.retry_branch_name
+
+    assert %{
+             collision_detected: true,
+             strategy: "deterministic_hash_suffix",
+             retry_limit: 1,
+             retry_attempted: true,
+             source_branch_name: "jidocode/implement-task/run-collision-fail",
+             retry_branch_name: retry_branch_name,
+             overwrite_existing_remote: false,
+             force_push: false,
+             retry_failure_reason_type: "branch_setup_failed"
+           } = typed_error.collision_handling
+
+    assert retry_branch_name == typed_error.retry_branch_name
+
+    recorded_calls = branch_setup_calls |> Agent.get(&Enum.reverse(&1))
+
+    assert length(recorded_calls) == 2
+    assert Enum.at(recorded_calls, 0).branch_name == "jidocode/implement-task/run-collision-fail"
+    assert Enum.at(recorded_calls, 1).branch_name == typed_error.retry_branch_name
+  end
+
   test "branch setup failure halts shipping before commit probe with typed branch setup error" do
     commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
 
