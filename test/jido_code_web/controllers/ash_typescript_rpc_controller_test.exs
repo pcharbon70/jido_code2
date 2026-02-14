@@ -1,6 +1,8 @@
 defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
   use JidoCodeWeb.ConnCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias AshAuthentication.{Info, Strategy}
   alias AshAuthentication.TokenResource.Actions
   alias JidoCode.Accounts.ApiKey
@@ -9,6 +11,10 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
 
   @api_key_audit_event [:jido_code, :rpc, :api_key, :used]
   @run_action_params %{"action" => "rpc_list_repositories", "fields" => ["id"]}
+  @restricted_run_action_params %{
+    "action" => "rpc_list_repositories_session_or_bearer",
+    "fields" => ["id"]
+  }
   @invalid_validate_action_params %{"fields" => ["id"]}
   @unknown_run_action_params %{"action" => "rpc_unknown_action", "fields" => ["id"]}
   @unknown_validate_action_params %{"action" => "rpc_unknown_action", "fields" => ["id"]}
@@ -208,6 +214,86 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
     refute Jason.encode!(response) =~ api_key
   end
 
+  test "restricted rpc action allows bearer auth mode", %{conn: conn} do
+    bearer_token = issue_bearer_token()
+
+    response =
+      conn
+      |> put_req_header("authorization", "Bearer #{bearer_token}")
+      |> post(~p"/rpc/run", @restricted_run_action_params)
+      |> json_response(200)
+
+    assert response["success"] == true
+    assert is_list(response["data"])
+    assert get_in(response, ["meta", "actor_auth_mode"]) == "bearer"
+  end
+
+  test "restricted rpc action allows session auth mode", %{conn: conn} do
+    owner = register_owner("rpc-session")
+    authed_conn = authenticate_owner_conn(conn, owner)
+
+    response =
+      authed_conn
+      |> post(~p"/rpc/run", @restricted_run_action_params)
+      |> json_response(200)
+
+    assert response["success"] == true
+    assert is_list(response["data"])
+    assert get_in(response, ["meta", "actor_auth_mode"]) == "session"
+  end
+
+  test "restricted rpc action rejects api key auth mode with typed authorization error", %{conn: conn} do
+    %{api_key: api_key} = issue_api_key()
+
+    response =
+      conn
+      |> put_req_header("x-api-key", api_key)
+      |> post(~p"/rpc/run", @restricted_run_action_params)
+      |> json_response(200)
+
+    assert response["success"] == false
+    assert get_in(response, ["meta", "actor_auth_mode"]) == "api_key"
+    refute Map.has_key?(response, "data")
+
+    [error | _] = response["errors"]
+    assert error["type"] == "authorization_failed"
+    assert error["details"]["reason"] == "auth_mode_not_allowed_for_action"
+    assert error["details"]["action"] == "rpc_list_repositories_session_or_bearer"
+    assert error["details"]["allowed_auth_modes"] == ["session", "bearer"]
+  end
+
+  test "restricted rpc action fails closed when actor context is missing", %{conn: conn} do
+    response =
+      conn
+      |> post(~p"/rpc/run", @restricted_run_action_params)
+      |> json_response(200)
+
+    assert response["success"] == false
+    assert get_in(response, ["meta", "actor_auth_mode"]) == "anonymous"
+    refute Map.has_key?(response, "data")
+    assert get_in(response, ["meta", "action_identifier"]) == nil
+
+    [error | _] = response["errors"]
+    assert error["type"] == "authorization_failed"
+    assert error["details"]["reason"] == "missing_actor_context"
+    assert error["details"]["action"] == "rpc_list_repositories_session_or_bearer"
+  end
+
+  test "logs resolved auth mode and auth policy decision for rpc requests", %{conn: conn} do
+    log =
+      capture_log(fn ->
+        conn
+        |> post(~p"/rpc/run", @restricted_run_action_params)
+        |> json_response(200)
+      end)
+
+    assert log =~ "rpc_auth_mode_policy_decision"
+    assert log =~ "action=rpc_list_repositories_session_or_bearer"
+    assert log =~ "auth_mode=anonymous"
+    assert log =~ "decision=deny"
+    assert log =~ "reason=missing_actor_context"
+  end
+
   test "revoked api key returns typed authorization failure and performs no RPC action", %{
     conn: conn
   } do
@@ -305,6 +391,46 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
       )
 
     signed_in_owner
+  end
+
+  defp authenticate_owner_conn(conn, owner) do
+    strategy = Info.strategy!(User, :password)
+
+    {:ok, signed_in_owner} =
+      Strategy.action(
+        strategy,
+        :sign_in,
+        %{"email" => to_string(owner.email), "password" => "owner-password-123"},
+        context: %{token_type: :sign_in}
+      )
+
+    token =
+      signed_in_owner
+      |> Map.get(:__metadata__, %{})
+      |> Map.fetch!(:token)
+
+    auth_response = conn |> get(owner_sign_in_with_token_path(strategy, token))
+    assert redirected_to(auth_response, 302) == "/"
+    recycle(auth_response)
+  end
+
+  defp owner_sign_in_with_token_path(strategy, token) do
+    strategy_path =
+      strategy
+      |> Strategy.routes()
+      |> Enum.find_value(fn
+        {path, :sign_in_with_token} -> path
+        _other -> nil
+      end)
+
+    path =
+      Path.join(
+        "/auth",
+        String.trim_leading(strategy_path || "/user/password/sign_in_with_token", "/")
+      )
+
+    query = URI.encode_query(%{"token" => token})
+    "#{path}?#{query}"
   end
 
   defp attach_api_key_audit_handler do

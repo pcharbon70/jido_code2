@@ -8,6 +8,7 @@ defmodule JidoCode.GitHub do
   typescript_rpc do
     resource JidoCode.GitHub.Repo do
       rpc_action :rpc_list_repositories, :read
+      rpc_action :rpc_list_repositories_session_or_bearer, :read
     end
   end
 

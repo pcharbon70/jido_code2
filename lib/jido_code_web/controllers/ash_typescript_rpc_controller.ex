@@ -8,6 +8,18 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
 
   @api_key_audit_event [:jido_code, :rpc, :api_key, :used]
   @api_key_prefix "agentjido_"
+  @rpc_auth_mode_policy_event "rpc_auth_mode_policy_decision"
+  @all_auth_modes ["anonymous", "session", "bearer", "api_key"]
+  @default_action_auth_mode_policy %{
+    require_actor?: false,
+    allowed_auth_modes: @all_auth_modes
+  }
+  @action_auth_mode_policies %{
+    "rpc_list_repositories_session_or_bearer" => %{
+      require_actor?: true,
+      allowed_auth_modes: ["session", "bearer"]
+    }
+  }
 
   def run(conn, params) do
     execute_rpc(conn, params, fn request_conn, request_params ->
@@ -27,19 +39,102 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
   end
 
   defp execute_rpc(conn, params, rpc_callback) do
+    action_name = params |> map_get(:action, "action") |> normalize_optional_string()
+
     case resolve_rpc_auth(conn) do
       {:error, auth_mode} ->
+        log_auth_mode_policy_decision(conn, action_name, auth_mode, "deny", "invalid_authentication", nil, nil)
         json(conn, auth_failure_response(auth_mode))
 
       {:ok, conn, auth_mode, actor} ->
-        maybe_record_api_key_audit(conn, actor, auth_mode)
+        case authorize_action_auth_mode(action_name, auth_mode, actor) do
+          {:ok, action_auth_mode_policy} ->
+            log_auth_mode_policy_decision(
+              conn,
+              action_name,
+              auth_mode,
+              "allow",
+              "authorized",
+              action_auth_mode_policy,
+              actor
+            )
 
-        result =
-          rpc_callback.(conn, params)
-          |> attach_actor_auth_mode(auth_mode)
+            maybe_record_api_key_audit(conn, actor, auth_mode)
 
-        json(conn, result)
+            result =
+              rpc_callback.(conn, params)
+              |> attach_actor_auth_mode(auth_mode)
+
+            json(conn, result)
+
+          {:error, reason, action_auth_mode_policy} ->
+            log_auth_mode_policy_decision(
+              conn,
+              action_name,
+              auth_mode,
+              "deny",
+              reason,
+              action_auth_mode_policy,
+              actor
+            )
+
+            json(conn, action_auth_mode_failure_response(auth_mode, action_name, reason, action_auth_mode_policy))
+        end
     end
+  end
+
+  defp authorize_action_auth_mode(action_name, auth_mode, actor) do
+    action_auth_mode_policy = resolve_action_auth_mode_policy(action_name)
+    require_actor? = Map.get(action_auth_mode_policy, :require_actor?, false)
+    allowed_auth_modes = Map.get(action_auth_mode_policy, :allowed_auth_modes, @all_auth_modes)
+    actor_present? = is_map(actor)
+
+    cond do
+      require_actor? and not actor_present? ->
+        {:error, "missing_actor_context", action_auth_mode_policy}
+
+      auth_mode not in allowed_auth_modes ->
+        {:error, "auth_mode_not_allowed_for_action", action_auth_mode_policy}
+
+      true ->
+        {:ok, action_auth_mode_policy}
+    end
+  end
+
+  defp resolve_action_auth_mode_policy(action_name) when is_binary(action_name) do
+    Map.get(@action_auth_mode_policies, action_name, @default_action_auth_mode_policy)
+  end
+
+  defp resolve_action_auth_mode_policy(_action_name), do: @default_action_auth_mode_policy
+
+  defp log_auth_mode_policy_decision(
+         conn,
+         action_name,
+         auth_mode,
+         decision,
+         reason,
+         action_auth_mode_policy,
+         actor
+       ) do
+    action_auth_mode_policy = action_auth_mode_policy || %{}
+
+    policy_allowed_auth_modes =
+      action_auth_mode_policy
+      |> Map.get(:allowed_auth_modes, [])
+      |> Enum.join(",")
+
+    policy_requires_actor = Map.get(action_auth_mode_policy, :require_actor?, false)
+    actor_present? = is_map(actor)
+    endpoint = conn.request_path
+    method = conn.method
+    normalized_action_name = action_name || "unknown"
+    normalized_auth_mode = auth_mode || "unknown"
+    log_level = if decision == "deny", do: :warning, else: :info
+
+    Logger.log(
+      log_level,
+      "#{@rpc_auth_mode_policy_event} endpoint=#{endpoint} method=#{method} action=#{normalized_action_name} auth_mode=#{normalized_auth_mode} decision=#{decision} reason=#{reason} policy_require_actor=#{policy_requires_actor} policy_allowed_modes=#{policy_allowed_auth_modes} actor_present=#{actor_present?}"
+    )
   end
 
   defp resolve_rpc_auth(conn) do
@@ -202,6 +297,48 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
 
   defp auth_failure_response("api_key"), do: api_key_auth_failure_response()
   defp auth_failure_response(auth_mode), do: bearer_auth_failure_response(auth_mode)
+
+  defp action_auth_mode_failure_response(
+         auth_mode,
+         action_name,
+         reason,
+         action_auth_mode_policy
+       ) do
+    allowed_auth_modes = Map.get(action_auth_mode_policy, :allowed_auth_modes, @all_auth_modes)
+
+    %{
+      success: false,
+      errors: [
+        %{
+          type: "authorization_failed",
+          short_message: "Authorization failed",
+          message: auth_mode_failure_message(reason),
+          vars: %{},
+          fields: [],
+          path: [],
+          details: %{
+            reason: reason,
+            action: action_name,
+            actor_auth_mode: auth_mode,
+            allowed_auth_modes: allowed_auth_modes
+          }
+        }
+      ]
+    }
+    |> attach_actor_auth_mode(auth_mode)
+  end
+
+  defp auth_mode_failure_message("missing_actor_context") do
+    "Actor context is required for this RPC action."
+  end
+
+  defp auth_mode_failure_message("auth_mode_not_allowed_for_action") do
+    "The resolved authentication mode is not allowed for this RPC action."
+  end
+
+  defp auth_mode_failure_message(_reason) do
+    "Authorization failed for this RPC action."
+  end
 
   defp api_key_auth_failure_response do
     %{
