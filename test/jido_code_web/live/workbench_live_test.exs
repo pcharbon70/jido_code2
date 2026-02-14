@@ -70,6 +70,30 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
     assert has_element?(view, "#workbench-project-name-#{project_one.id}", "owner/repo-one")
     assert has_element?(view, "#workbench-project-open-issues-#{project_one.id}", "12")
     assert has_element?(view, "#workbench-project-open-prs-#{project_one.id}", "3")
+    assert has_element?(view, "#workbench-project-issues-github-link-#{project_one.id}")
+    assert has_element?(view, "#workbench-project-issues-project-link-#{project_one.id}")
+    assert has_element?(view, "#workbench-project-prs-github-link-#{project_one.id}")
+    assert has_element?(view, "#workbench-project-prs-project-link-#{project_one.id}")
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-github-link-#{project_one.id}[href='https://github.com/owner/repo-one/issues']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-github-link-#{project_one.id}[href='https://github.com/owner/repo-one/pulls']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-project-link-#{project_one.id}[href='/projects/#{project_one.id}']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-project-link-#{project_one.id}[href='/projects/#{project_one.id}']"
+           )
 
     assert has_element?(
              view,
@@ -80,6 +104,30 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
     assert has_element?(view, "#workbench-project-name-#{project_two.id}", "owner/repo-two")
     assert has_element?(view, "#workbench-project-open-issues-#{project_two.id}", "4")
     assert has_element?(view, "#workbench-project-open-prs-#{project_two.id}", "1")
+    assert has_element?(view, "#workbench-project-issues-github-link-#{project_two.id}")
+    assert has_element?(view, "#workbench-project-issues-project-link-#{project_two.id}")
+    assert has_element?(view, "#workbench-project-prs-github-link-#{project_two.id}")
+    assert has_element?(view, "#workbench-project-prs-project-link-#{project_two.id}")
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-github-link-#{project_two.id}[href='https://github.com/owner/repo-two/issues']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-github-link-#{project_two.id}[href='https://github.com/owner/repo-two/pulls']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-issues-project-link-#{project_two.id}[href='/projects/#{project_two.id}']"
+           )
+
+    assert has_element?(
+             view,
+             "#workbench-project-prs-project-link-#{project_two.id}[href='/projects/#{project_two.id}']"
+           )
 
     assert has_element?(view, "#workbench-project-recent-activity-#{project_two.id}")
 
@@ -146,6 +194,82 @@ defmodule JidoCodeWeb.WorkbenchLiveTest do
              "#workbench-project-recent-activity-owner-repo-recovered",
              "Recovery refresh completed."
            )
+  end
+
+  test "shows disabled link states with explanations when row link targets are unavailable", %{
+    conn: _conn
+  } do
+    register_owner("owner@example.com", "owner-password-123")
+    {authed_conn, _session_token} = authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    Application.put_env(:jido_code, :workbench_inventory_loader, fn ->
+      {:ok,
+       [
+         %{
+           id: "",
+           name: "repo-with-missing-links",
+           github_full_name: "",
+           open_issue_count: 2,
+           open_pr_count: 1,
+           recent_activity_summary: "No metadata available for links."
+         }
+       ], nil}
+    end)
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/workbench", on_error: :warn)
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-issues-github-disabled-workbench-row-'][aria-disabled='true']",
+             "GitHub issues"
+           )
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-issues-github-disabled-reason-workbench-row-']",
+             "GitHub repository URL is unavailable for this row."
+           )
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-prs-github-disabled-workbench-row-'][aria-disabled='true']",
+             "GitHub PRs"
+           )
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-prs-github-disabled-reason-workbench-row-']",
+             "GitHub repository URL is unavailable for this row."
+           )
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-issues-project-disabled-workbench-row-'][aria-disabled='true']",
+             "Project detail"
+           )
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-issues-project-disabled-reason-workbench-row-']",
+             "Project detail link is unavailable for this row."
+           )
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-prs-project-disabled-workbench-row-'][aria-disabled='true']",
+             "Project detail"
+           )
+
+    assert has_element?(
+             view,
+             "[id^='workbench-project-prs-project-disabled-reason-workbench-row-']",
+             "Project detail link is unavailable for this row."
+           )
+
+    refute has_element?(view, "[id^='workbench-project-issues-github-link-workbench-row-']")
+    refute has_element?(view, "[id^='workbench-project-prs-github-link-workbench-row-']")
+    refute has_element?(view, "[id^='workbench-project-issues-project-link-workbench-row-']")
+    refute has_element?(view, "[id^='workbench-project-prs-project-link-workbench-row-']")
   end
 
   defp register_owner(email, password) do

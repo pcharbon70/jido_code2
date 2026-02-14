@@ -3,6 +3,8 @@ defmodule JidoCodeWeb.WorkbenchLive do
 
   alias JidoCode.Workbench.Inventory
 
+  @fallback_row_id_prefix "workbench-row-"
+
   @impl true
   def mount(_params, _session, socket) do
     socket =
@@ -69,11 +71,12 @@ defmodule JidoCodeWeb.WorkbenchLive do
               <th>Open issues</th>
               <th>Open PRs</th>
               <th>Recent activity</th>
+              <th>Links</th>
             </tr>
           </thead>
           <tbody id="workbench-project-rows" phx-update="stream">
             <tr :if={@inventory_count == 0} id="workbench-empty-state">
-              <td colspan="4" class="text-center text-sm text-base-content/70 py-8">
+              <td colspan="5" class="text-center text-sm text-base-content/70 py-8">
                 No imported projects available yet.
               </td>
             </tr>
@@ -88,6 +91,52 @@ defmodule JidoCodeWeb.WorkbenchLive do
               <td id={"workbench-project-open-prs-#{project.id}"}>{project.open_pr_count}</td>
               <td id={"workbench-project-recent-activity-#{project.id}"} class="text-sm">
                 {project.recent_activity_summary}
+              </td>
+              <td id={"workbench-project-links-#{project.id}"} class="space-y-2 text-xs">
+                <div id={"workbench-project-issues-links-#{project.id}"}>
+                  <p class="font-medium text-base-content/80">Issues</p>
+                  <div class="flex flex-col gap-0.5">
+                    <.row_link
+                      link_id={"workbench-project-issues-github-link-#{project.id}"}
+                      disabled_id={"workbench-project-issues-github-disabled-#{project.id}"}
+                      reason_id={"workbench-project-issues-github-disabled-reason-#{project.id}"}
+                      label="GitHub issues"
+                      target={issue_github_url(project)}
+                      disabled_reason={github_url_unavailable_reason()}
+                      external
+                    />
+                    <.row_link
+                      link_id={"workbench-project-issues-project-link-#{project.id}"}
+                      disabled_id={"workbench-project-issues-project-disabled-#{project.id}"}
+                      reason_id={"workbench-project-issues-project-disabled-reason-#{project.id}"}
+                      label="Project detail"
+                      target={project_detail_path(project)}
+                      disabled_reason={project_detail_unavailable_reason()}
+                    />
+                  </div>
+                </div>
+                <div id={"workbench-project-prs-links-#{project.id}"}>
+                  <p class="font-medium text-base-content/80">PRs</p>
+                  <div class="flex flex-col gap-0.5">
+                    <.row_link
+                      link_id={"workbench-project-prs-github-link-#{project.id}"}
+                      disabled_id={"workbench-project-prs-github-disabled-#{project.id}"}
+                      reason_id={"workbench-project-prs-github-disabled-reason-#{project.id}"}
+                      label="GitHub PRs"
+                      target={pull_request_github_url(project)}
+                      disabled_reason={github_url_unavailable_reason()}
+                      external
+                    />
+                    <.row_link
+                      link_id={"workbench-project-prs-project-link-#{project.id}"}
+                      disabled_id={"workbench-project-prs-project-disabled-#{project.id}"}
+                      reason_id={"workbench-project-prs-project-disabled-reason-#{project.id}"}
+                      label="Project detail"
+                      target={project_detail_path(project)}
+                      disabled_reason={project_detail_unavailable_reason()}
+                    />
+                  </div>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -112,4 +161,118 @@ defmodule JidoCodeWeb.WorkbenchLive do
         |> stream(:inventory_rows, [], reset: true)
     end
   end
+
+  attr(:link_id, :string, required: true)
+  attr(:disabled_id, :string, required: true)
+  attr(:reason_id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:target, :string, default: nil)
+  attr(:disabled_reason, :string, required: true)
+  attr(:external, :boolean, default: false)
+
+  defp row_link(assigns) do
+    ~H"""
+    <%= if is_binary(@target) do %>
+      <.link
+        id={@link_id}
+        class="link link-primary"
+        href={@target}
+        target={if @external, do: "_blank"}
+        rel={if @external, do: "noopener noreferrer"}
+      >
+        {@label}
+      </.link>
+    <% else %>
+      <span
+        id={@disabled_id}
+        class="text-base-content/50 cursor-not-allowed"
+        aria-disabled="true"
+        title={@disabled_reason}
+      >
+        {@label}
+      </span>
+      <p id={@reason_id} class="text-[11px] text-base-content/60">
+        Unavailable: {@disabled_reason}
+      </p>
+    <% end %>
+    """
+  end
+
+  defp issue_github_url(project) do
+    with {:ok, repository_path} <- github_repository_path(project) do
+      "#{repository_path}/issues"
+    end
+  end
+
+  defp pull_request_github_url(project) do
+    with {:ok, repository_path} <- github_repository_path(project) do
+      "#{repository_path}/pulls"
+    end
+  end
+
+  defp github_repository_path(project) do
+    project
+    |> Map.get(:github_full_name)
+    |> normalize_optional_string()
+    |> parse_github_repository_name()
+    |> case do
+      {:ok, owner, repository} -> {:ok, "https://github.com/#{owner}/#{repository}"}
+      :error -> :error
+    end
+  end
+
+  defp parse_github_repository_name(nil), do: :error
+
+  defp parse_github_repository_name(github_full_name) do
+    case String.split(github_full_name, "/", parts: 2) do
+      [owner, repository] ->
+        owner = String.trim(owner)
+        repository = String.trim(repository)
+
+        if owner == "" or repository == "" or String.contains?(owner <> repository, " ") do
+          :error
+        else
+          {:ok, owner, repository}
+        end
+
+      _other ->
+        :error
+    end
+  end
+
+  defp project_detail_path(project) do
+    project
+    |> Map.get(:id)
+    |> normalize_optional_string()
+    |> case do
+      nil ->
+        nil
+
+      <<@fallback_row_id_prefix, _::binary>> ->
+        nil
+
+      project_id ->
+        "/projects/#{URI.encode(project_id)}"
+    end
+  end
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(value) when is_boolean(value), do: nil
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized_value -> normalized_value
+    end
+  end
+
+  defp normalize_optional_string(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_optional_string()
+
+  defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_optional_string(value) when is_float(value), do: :erlang.float_to_binary(value)
+  defp normalize_optional_string(_value), do: nil
+
+  defp github_url_unavailable_reason, do: "GitHub repository URL is unavailable for this row."
+  defp project_detail_unavailable_reason, do: "Project detail link is unavailable for this row."
 end
