@@ -88,6 +88,7 @@ config :jido_code,
   ash_domains: [
     JidoCode.Accounts,
     JidoCode.GitHub,
+    JidoCode.Projects,
     JidoCode.Forge.Domain,
     JidoCode.Folio,
     JidoCode.Security

@@ -4,7 +4,7 @@ defmodule JidoCodeWeb.SetupLiveTest do
   alias AshAuthentication.{Info, Strategy}
   alias JidoCode.Accounts
   alias JidoCode.Accounts.User
-  alias JidoCode.GitHub.Repo, as: GitHubRepo
+  alias JidoCode.Projects.Project
   alias JidoCode.Repo
   alias JidoCode.Security.SecretRefs
 
@@ -1400,13 +1400,11 @@ defmodule JidoCodeWeb.SetupLiveTest do
     assert project_import_state["selected_repository"] == "owner/repo-one"
     assert project_import_state["baseline_metadata"]["status"] == "ready"
 
-    {:ok, [imported_repo]} =
-      GitHubRepo.read(query: [filter: [full_name: "owner/repo-one"], limit: 1])
+    {:ok, [imported_project]} =
+      Project.read(query: [filter: [github_full_name: "owner/repo-one"], limit: 1])
 
-    baseline_metadata = Map.fetch!(imported_repo.settings, "baseline")
-    assert baseline_metadata["status"] == "ready"
-    assert baseline_metadata["workspace_initialized"] == true
-    assert baseline_metadata["baseline_synced"] == true
+    assert imported_project.github_full_name == "owner/repo-one"
+    assert imported_project.default_branch == "main"
 
     view
     |> form("#onboarding-step-form", %{
@@ -1453,6 +1451,47 @@ defmodule JidoCodeWeb.SetupLiveTest do
            ]
   end
 
+  test "step 7 duplicate imports keep a single project record for the selected repository", %{
+    conn: conn
+  } do
+    {:ok, _project} =
+      Project.create(%{
+        name: "repo-one",
+        github_full_name: "owner/repo-one",
+        default_branch: "main"
+      })
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 7,
+      onboarding_state: onboarding_state_through_step_6()
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    view
+    |> form("#onboarding-step-form", %{
+      "step" => %{
+        "repository_full_name" => "owner/repo-one",
+        "validated_note" => "Re-importing existing project"
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#resolved-onboarding-step", "Step 8")
+
+    project_import_state =
+      Application.get_env(:jido_code, :system_config)
+      |> Map.fetch!(:onboarding_state)
+      |> Map.fetch!("7")
+      |> Map.fetch!("project_import")
+
+    assert project_import_state["status"] == "ready"
+
+    {:ok, projects} = Project.read(query: [filter: [github_full_name: "owner/repo-one"]])
+    assert length(projects) == 1
+  end
+
   test "step 7 import failure blocks onboarding completion and leaves completion flag unset", %{
     conn: conn
   } do
@@ -1495,8 +1534,8 @@ defmodule JidoCodeWeb.SetupLiveTest do
     assert Map.fetch!(persisted_config, :onboarding_completed) == false
     refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "7")
 
-    {:ok, repos} = GitHubRepo.read(query: [filter: [full_name: "owner/repo-one"]])
-    assert repos == []
+    {:ok, projects} = Project.read(query: [filter: [github_full_name: "owner/repo-one"]])
+    assert projects == []
   end
 
   test "save failure keeps the same step and shows a retry-safe error", %{conn: conn} do

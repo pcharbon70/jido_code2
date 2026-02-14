@@ -3,19 +3,20 @@ defmodule JidoCode.Setup.ProjectImport do
   Imports the selected repository during setup step 7 and initializes baseline project metadata.
   """
 
-  alias JidoCode.GitHub.Repo, as: GitHubRepo
+  alias JidoCode.Projects.Project
 
   @default_selection_remediation "Select one of the repositories validated in step 4 and retry import."
   @default_importer_remediation "Verify project import configuration and retry step 7."
+  @default_branch "main"
 
   @type status :: :ready | :blocked
   @type import_mode :: :created | :existing
 
   @type project_record :: %{
           id: String.t(),
-          owner: String.t(),
           name: String.t(),
-          full_name: String.t(),
+          github_full_name: String.t(),
+          default_branch: String.t(),
           import_mode: import_mode(),
           imported_at: DateTime.t()
         }
@@ -56,7 +57,8 @@ defmodule JidoCode.Setup.ProjectImport do
     |> safe_invoke_importer(%{
       checked_at: checked_at,
       selected_repository: selected_repository,
-      available_repositories: available_repositories
+      available_repositories: available_repositories,
+      onboarding_state: onboarding_state
     })
     |> normalize_report(checked_at, selected_repository)
   end
@@ -192,9 +194,10 @@ defmodule JidoCode.Setup.ProjectImport do
   def default_importer(%{
         checked_at: checked_at,
         selected_repository: selected_repository,
-        available_repositories: available_repositories
+        available_repositories: available_repositories,
+        onboarding_state: onboarding_state
       })
-      when is_list(available_repositories) do
+      when is_list(available_repositories) and is_map(onboarding_state) do
     cond do
       is_nil(selected_repository) ->
         blocked_report(
@@ -215,9 +218,12 @@ defmodule JidoCode.Setup.ProjectImport do
         )
 
       true ->
-        with {:ok, owner, name} <- split_repository(selected_repository),
-             {:ok, repo, import_mode} <-
-               ensure_project_record(owner, name, selected_repository, checked_at) do
+        default_branch =
+          resolve_default_branch(selected_repository, onboarding_state, @default_branch)
+
+        with {:ok, _owner, name} <- split_repository(selected_repository),
+             {:ok, project, import_mode} <-
+               ensure_project_record(name, selected_repository, default_branch) do
           baseline_metadata = baseline_metadata(checked_at)
 
           %{
@@ -225,10 +231,10 @@ defmodule JidoCode.Setup.ProjectImport do
             status: :ready,
             selected_repository: selected_repository,
             project_record: %{
-              id: to_string(repo.id),
-              owner: to_string(repo.owner),
-              name: to_string(repo.name),
-              full_name: to_string(repo.full_name),
+              id: to_string(project.id),
+              name: to_string(project.name),
+              github_full_name: to_string(project.github_full_name),
+              default_branch: to_string(project.default_branch),
               import_mode: import_mode,
               imported_at: checked_at
             },
@@ -331,39 +337,40 @@ defmodule JidoCode.Setup.ProjectImport do
     }
   end
 
-  defp ensure_project_record(owner, name, selected_repository, checked_at) do
-    case GitHubRepo.read(query: [filter: [full_name: selected_repository], limit: 1]) do
-      {:ok, [existing_repo | _]} ->
-        settings = merge_baseline_settings(existing_repo.settings, checked_at)
+  defp ensure_project_record(name, selected_repository, default_branch) do
+    case Project.read(query: [filter: [github_full_name: selected_repository], limit: 1]) do
+      {:ok, [existing_project | _]} ->
+        update_attributes = %{
+          name: name,
+          default_branch: default_branch
+        }
 
-        case GitHubRepo.update(existing_repo, %{settings: settings}) do
-          {:ok, updated_repo} -> {:ok, updated_repo, :existing}
-          {:error, reason} -> {:error, {"project_record_update_failed", format_reason(reason)}}
+        case Project.update(existing_project, update_attributes) do
+          {:ok, updated_project} ->
+            {:ok, updated_project, :existing}
+
+          {:error, reason} ->
+            {:error, {"project_persistence_update_failed", format_reason(reason)}}
         end
 
       {:ok, []} ->
         create_attributes = %{
-          owner: owner,
           name: name,
-          settings: merge_baseline_settings(%{}, checked_at)
+          github_full_name: selected_repository,
+          default_branch: default_branch
         }
 
-        case GitHubRepo.create(create_attributes) do
-          {:ok, repo} -> {:ok, repo, :created}
-          {:error, reason} -> {:error, {"project_record_create_failed", format_reason(reason)}}
+        case Project.create(create_attributes) do
+          {:ok, project} ->
+            {:ok, project, :created}
+
+          {:error, reason} ->
+            {:error, {"project_persistence_create_failed", format_reason(reason)}}
         end
 
       {:error, reason} ->
-        {:error, {"project_record_lookup_failed", format_reason(reason)}}
+        {:error, {"project_persistence_lookup_failed", format_reason(reason)}}
     end
-  end
-
-  defp merge_baseline_settings(settings, checked_at) when is_map(settings) do
-    Map.put(settings, "baseline", baseline_metadata_state(checked_at))
-  end
-
-  defp merge_baseline_settings(_settings, checked_at) do
-    %{"baseline" => baseline_metadata_state(checked_at)}
   end
 
   defp baseline_metadata(checked_at) do
@@ -374,17 +381,6 @@ defmodule JidoCode.Setup.ProjectImport do
       agent_configuration_registered: true,
       status: :ready,
       initialized_at: checked_at
-    }
-  end
-
-  defp baseline_metadata_state(checked_at) do
-    %{
-      "workspace_initialized" => true,
-      "baseline_synced" => true,
-      "default_workflow_registered" => true,
-      "agent_configuration_registered" => true,
-      "status" => "ready",
-      "initialized_at" => DateTime.to_iso8601(checked_at)
     }
   end
 
@@ -406,9 +402,14 @@ defmodule JidoCode.Setup.ProjectImport do
   defp serialize_project_record(project_record) when is_map(project_record) do
     %{
       "id" => map_get(project_record, :id, "id"),
-      "owner" => map_get(project_record, :owner, "owner"),
       "name" => map_get(project_record, :name, "name"),
-      "full_name" => map_get(project_record, :full_name, "full_name"),
+      "github_full_name" =>
+        map_get(project_record, :github_full_name, "github_full_name") ||
+          map_get(project_record, :full_name, "full_name"),
+      "full_name" =>
+        map_get(project_record, :github_full_name, "github_full_name") ||
+          map_get(project_record, :full_name, "full_name"),
+      "default_branch" => map_get(project_record, :default_branch, "default_branch", @default_branch),
       "import_mode" =>
         project_record
         |> map_get(:import_mode, "import_mode")
@@ -462,20 +463,32 @@ defmodule JidoCode.Setup.ProjectImport do
   defp normalize_project_record(project_record, default_imported_at)
        when is_map(project_record) do
     id = project_record |> map_get(:id, "id") |> normalize_optional_string()
-    owner = project_record |> map_get(:owner, "owner") |> normalize_optional_string()
     name = project_record |> map_get(:name, "name") |> normalize_optional_string()
 
-    full_name =
+    github_full_name =
       project_record
-      |> map_get(:full_name, "full_name")
+      |> map_get(:github_full_name, "github_full_name")
+      |> case do
+        nil -> map_get(project_record, :full_name, "full_name")
+        github_full_name -> github_full_name
+      end
       |> normalize_optional_string()
 
-    if Enum.all?([id, owner, name, full_name], &is_binary/1) do
+    default_branch =
+      project_record
+      |> map_get(:default_branch, "default_branch", @default_branch)
+      |> normalize_optional_string()
+      |> case do
+        nil -> @default_branch
+        normalized_default_branch -> normalized_default_branch
+      end
+
+    if Enum.all?([id, name, github_full_name, default_branch], &is_binary/1) do
       %{
         id: id,
-        owner: owner,
         name: name,
-        full_name: full_name,
+        github_full_name: github_full_name,
+        default_branch: default_branch,
         import_mode:
           project_record
           |> map_get(:import_mode, "import_mode")
@@ -554,11 +567,58 @@ defmodule JidoCode.Setup.ProjectImport do
 
   defp normalize_repositories(repositories) when is_list(repositories) do
     repositories
-    |> Enum.map(&normalize_repository(&1, nil))
+    |> Enum.map(&repository_full_name/1)
     |> Enum.reject(&is_nil/1)
   end
 
   defp normalize_repositories(_repositories), do: []
+
+  defp resolve_default_branch(selected_repository, onboarding_state, fallback)
+       when is_binary(selected_repository) and is_map(onboarding_state) do
+    selected_repository
+    |> repository_metadata(onboarding_state)
+    |> map_get(:default_branch, "default_branch", fallback)
+    |> normalize_branch_name(fallback)
+  end
+
+  defp resolve_default_branch(_selected_repository, _onboarding_state, fallback), do: fallback
+
+  defp repository_metadata(selected_repository, onboarding_state)
+       when is_binary(selected_repository) and is_map(onboarding_state) do
+    repository_sources(onboarding_state)
+    |> Enum.find(%{}, fn repository ->
+      repository
+      |> repository_full_name()
+      |> normalize_repository(nil) == selected_repository
+    end)
+  end
+
+  defp repository_metadata(_selected_repository, _onboarding_state), do: %{}
+
+  defp repository_sources(onboarding_state) when is_map(onboarding_state) do
+    step_7_repositories =
+      onboarding_state
+      |> fetch_step_state(7)
+      |> map_get(:repository_listing, "repository_listing", %{})
+      |> map_get(:repositories, "repositories", [])
+      |> normalize_paths()
+
+    step_4_repositories =
+      onboarding_state
+      |> fetch_step_state(4)
+      |> map_get(:github_credentials, "github_credentials", %{})
+      |> map_get(:paths, "paths", [])
+      |> normalize_paths()
+      |> Enum.flat_map(fn path ->
+        path
+        |> map_get(:repositories, "repositories", [])
+        |> normalize_paths()
+      end)
+
+    step_7_repositories ++ step_4_repositories
+  end
+
+  defp repository_sources(_onboarding_state), do: []
 
   defp default_status(project_record, baseline_metadata) do
     if is_map(project_record) and is_map(baseline_metadata), do: :ready, else: :blocked
@@ -608,6 +668,26 @@ defmodule JidoCode.Setup.ProjectImport do
   end
 
   defp normalize_repository(_repository, fallback), do: fallback
+
+  defp repository_full_name(repository) when is_binary(repository),
+    do: normalize_repository(repository, nil)
+
+  defp repository_full_name(repository) when is_map(repository) do
+    repository
+    |> map_get(:full_name, "full_name")
+    |> normalize_repository(nil)
+  end
+
+  defp repository_full_name(_repository), do: nil
+
+  defp normalize_branch_name(value, fallback) when is_binary(value) do
+    case String.trim(value) do
+      "" -> fallback
+      normalized_branch -> normalized_branch
+    end
+  end
+
+  defp normalize_branch_name(_value, fallback), do: fallback
 
   defp normalize_detail(nil, :ready),
     do: "Repository import is complete and baseline metadata is ready."
@@ -662,13 +742,17 @@ defmodule JidoCode.Setup.ProjectImport do
 
   defp fetch_step_state(_onboarding_state, _onboarding_step), do: %{}
 
-  defp map_get(map, atom_key, string_key, default \\ nil) do
+  defp map_get(map, atom_key, string_key, default \\ nil)
+
+  defp map_get(map, atom_key, string_key, default) when is_map(map) do
     cond do
       Map.has_key?(map, atom_key) -> Map.get(map, atom_key)
       Map.has_key?(map, string_key) -> Map.get(map, string_key)
       true -> default
     end
   end
+
+  defp map_get(_map, _atom_key, _string_key, default), do: default
 
   defp format_reason(reason) do
     reason
