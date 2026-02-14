@@ -1369,6 +1369,48 @@ defmodule JidoCodeWeb.SetupLiveTest do
     refute Map.has_key?(Map.fetch!(persisted_config, :onboarding_state), "7")
   end
 
+  test "step 7 shows stale installation sync warning with retry guidance on repository listing",
+       %{conn: conn} do
+    onboarding_state =
+      onboarding_state_through_step_6()
+      |> Map.put("7", %{
+        "installation_sync" => %{
+          "status" => "stale",
+          "event" => "installation",
+          "action" => "created",
+          "error_type" => "github_installation_sync_stale",
+          "detail" =>
+            "Installation sync failed while processing `installation.created`. Repository availability may be stale.",
+          "remediation" => "Retry repository refresh in step 7 after confirming GitHub App installation access.",
+          "accessible_repositories" => ["owner/repo-one"]
+        }
+      })
+
+    Application.put_env(:jido_code, :system_config, %{
+      onboarding_completed: false,
+      onboarding_step: 7,
+      onboarding_state: onboarding_state
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/setup", on_error: :warn)
+
+    assert has_element?(view, "#setup-project-repository-listing-status", "Blocked")
+
+    assert has_element?(
+             view,
+             "#setup-project-repository-listing-detail",
+             "Repository availability may be stale"
+           )
+
+    assert has_element?(
+             view,
+             "#setup-project-repository-listing-remediation",
+             "Retry repository refresh in step 7"
+           )
+
+    assert has_element?(view, "#setup-project-repository-option-owner-repo-one", "owner/repo-one")
+  end
+
   test "step 7 imports the selected repository and step 8 completes onboarding with dashboard next actions",
        %{conn: _conn} do
     register_owner("owner@example.com", "owner-password-123")

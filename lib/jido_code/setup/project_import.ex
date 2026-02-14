@@ -78,26 +78,40 @@ defmodule JidoCode.Setup.ProjectImport do
 
   @spec available_repositories(map() | nil) :: [String.t()]
   def available_repositories(onboarding_state) when is_map(onboarding_state) do
-    onboarding_state
-    |> fetch_step_state(4)
-    |> map_get(:github_credentials, "github_credentials", %{})
-    |> map_get(:paths, "paths", [])
-    |> normalize_paths()
-    |> Enum.flat_map(fn path ->
-      path_status =
-        path
-        |> map_get(:status, "status", nil)
-        |> normalize_path_status(:blocked)
+    installation_sync =
+      onboarding_state
+      |> fetch_step_state(7)
+      |> map_get(:installation_sync, "installation_sync", %{})
+      |> normalize_installation_sync_state()
 
-      repositories =
-        path
-        |> map_get(:repositories, "repositories", [])
-        |> normalize_repositories()
+    case installation_sync do
+      %{status: :ready, repositories: repositories} ->
+        repositories
+        |> Enum.uniq()
+        |> Enum.sort()
 
-      if path_status == :ready, do: repositories, else: []
-    end)
-    |> Enum.uniq()
-    |> Enum.sort()
+      _other ->
+        onboarding_state
+        |> fetch_step_state(4)
+        |> map_get(:github_credentials, "github_credentials", %{})
+        |> map_get(:paths, "paths", [])
+        |> normalize_paths()
+        |> Enum.flat_map(fn path ->
+          path_status =
+            path
+            |> map_get(:status, "status", nil)
+            |> normalize_path_status(:blocked)
+
+          repositories =
+            path
+            |> map_get(:repositories, "repositories", [])
+            |> normalize_repositories()
+
+          if path_status == :ready, do: repositories, else: []
+        end)
+        |> Enum.uniq()
+        |> Enum.sort()
+    end
   end
 
   def available_repositories(_onboarding_state), do: []
@@ -1342,6 +1356,32 @@ defmodule JidoCode.Setup.ProjectImport do
 
   defp normalize_paths(paths) when is_list(paths), do: paths
   defp normalize_paths(_paths), do: []
+
+  defp normalize_installation_sync_state(installation_sync) when is_map(installation_sync) do
+    status =
+      installation_sync
+      |> map_get(:status, "status", nil)
+      |> normalize_installation_sync_status()
+
+    repositories =
+      installation_sync
+      |> map_get(:accessible_repositories, "accessible_repositories", [])
+      |> normalize_repositories()
+
+    if status == :ready do
+      %{status: :ready, repositories: repositories}
+    else
+      nil
+    end
+  end
+
+  defp normalize_installation_sync_state(_installation_sync), do: nil
+
+  defp normalize_installation_sync_status(:ready), do: :ready
+  defp normalize_installation_sync_status("ready"), do: :ready
+  defp normalize_installation_sync_status(:stale), do: :stale
+  defp normalize_installation_sync_status("stale"), do: :stale
+  defp normalize_installation_sync_status(_status), do: nil
 
   defp normalize_repositories(repositories) when is_list(repositories) do
     repositories

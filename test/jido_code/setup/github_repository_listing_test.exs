@@ -94,6 +94,88 @@ defmodule JidoCode.Setup.GitHubRepositoryListingTest do
     assert report.detail =~ "preserved for retry"
   end
 
+  test "run/2 prefers installation sync repository metadata when available" do
+    onboarding_state = %{
+      "4" => %{
+        "github_credentials" => %{
+          "paths" => [
+            %{
+              "path" => "github_app",
+              "status" => "ready",
+              "repository_access" => "confirmed",
+              "repositories" => ["owner/repo-one"]
+            }
+          ]
+        }
+      },
+      "7" => %{
+        "installation_sync" => %{
+          "status" => "ready",
+          "event" => "installation_repositories",
+          "action" => "added",
+          "installation_id" => 321,
+          "detail" =>
+            "Installation sync processed `installation_repositories.added` and updated accessible repository metadata.",
+          "remediation" => "Installation metadata is current.",
+          "accessible_repositories" => [
+            %{"id" => "repo_100", "full_name" => "owner/repo-three"},
+            %{"id" => "repo_101", "full_name" => "owner/repo-four"}
+          ]
+        }
+      }
+    }
+
+    report = GitHubRepositoryListing.run(nil, onboarding_state)
+
+    refute GitHubRepositoryListing.blocked?(report)
+    assert report.status == :ready
+    assert report.detail =~ "installation_repositories.added"
+
+    assert GitHubRepositoryListing.repository_full_names(report) == [
+             "owner/repo-four",
+             "owner/repo-three"
+           ]
+  end
+
+  test "run/2 surfaces stale warning and retry guidance from installation sync metadata" do
+    onboarding_state = %{
+      "4" => %{
+        "github_credentials" => %{
+          "paths" => [
+            %{
+              "path" => "github_app",
+              "status" => "ready",
+              "repository_access" => "confirmed",
+              "repositories" => ["owner/repo-one"]
+            }
+          ]
+        }
+      },
+      "7" => %{
+        "installation_sync" => %{
+          "status" => "stale",
+          "event" => "installation",
+          "action" => "created",
+          "error_type" => "github_installation_sync_stale",
+          "detail" =>
+            "Installation sync failed while processing `installation.created`. Repository availability may be stale.",
+          "remediation" => "Retry repository refresh in step 7 after confirming GitHub App installation access.",
+          "accessible_repositories" => ["owner/repo-one"]
+        }
+      }
+    }
+
+    report = GitHubRepositoryListing.run(nil, onboarding_state)
+
+    assert GitHubRepositoryListing.blocked?(report)
+    assert report.status == :blocked
+    assert report.error_type == "github_installation_sync_stale"
+    assert report.detail =~ "may be stale"
+    assert report.remediation =~ "Retry repository refresh in step 7"
+
+    assert GitHubRepositoryListing.repository_full_names(report) == ["owner/repo-one"]
+  end
+
   defp restore_env(key, :__missing__), do: Application.delete_env(:jido_code, key)
   defp restore_env(key, value), do: Application.put_env(:jido_code, key, value)
 end

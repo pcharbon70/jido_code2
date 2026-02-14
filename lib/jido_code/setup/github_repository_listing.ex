@@ -6,6 +6,9 @@ defmodule JidoCode.Setup.GitHubRepositoryListing do
   @default_fetcher_remediation "Re-run GitHub credential validation in step 4 and retry repository refresh."
   @default_missing_prerequisite_remediation "Complete GitHub setup in step 4 before importing a project."
   @default_no_access_remediation "Grant repository access for the configured GitHub credentials and refresh the list."
+  @default_installation_stale_remediation "Retry repository refresh in step 7 after resolving GitHub App installation sync failures."
+  @installation_revoked_error_type "github_installation_access_revoked"
+  @installation_stale_error_type "github_installation_sync_stale"
 
   @type status :: :ready | :blocked
 
@@ -143,6 +146,51 @@ defmodule JidoCode.Setup.GitHubRepositoryListing do
 
   @doc false
   def default_fetcher(%{checked_at: checked_at, onboarding_state: onboarding_state}) do
+    installation_sync_state = installation_sync_state(onboarding_state)
+
+    case installation_sync_state do
+      %{status: :stale} = stale_state ->
+        blocked_report(
+          checked_at,
+          stale_state.repositories,
+          stale_state.error_type || @installation_stale_error_type,
+          stale_state.detail,
+          stale_state.remediation
+        )
+
+      %{status: :ready} = ready_state ->
+        if ready_state.repositories == [] do
+          blocked_report(
+            checked_at,
+            [],
+            ready_state.error_type || @installation_revoked_error_type,
+            ready_state.detail,
+            ready_state.remediation
+          )
+        else
+          ready_report(
+            checked_at,
+            ready_state.repositories,
+            ready_state.detail
+          )
+        end
+
+      _other ->
+        default_fetcher_without_installation_override(checked_at, onboarding_state)
+    end
+  end
+
+  def default_fetcher(_context) do
+    blocked_report(
+      DateTime.utc_now() |> DateTime.truncate(:second),
+      [],
+      "github_repository_fetch_context_invalid",
+      "GitHub repository listing context is invalid.",
+      @default_fetcher_remediation
+    )
+  end
+
+  defp default_fetcher_without_installation_override(checked_at, onboarding_state) do
     github_credentials =
       onboarding_state
       |> fetch_step_state(4)
@@ -205,16 +253,6 @@ defmodule JidoCode.Setup.GitHubRepositoryListing do
     end
   end
 
-  def default_fetcher(_context) do
-    blocked_report(
-      DateTime.utc_now() |> DateTime.truncate(:second),
-      [],
-      "github_repository_fetch_context_invalid",
-      "GitHub repository listing context is invalid.",
-      @default_fetcher_remediation
-    )
-  end
-
   defp safe_invoke_fetcher(fetcher, context) when is_function(fetcher, 1) do
     try do
       case fetcher.(context) do
@@ -273,7 +311,8 @@ defmodule JidoCode.Setup.GitHubRepositoryListing do
   defp preserve_previous_repositories(report, previous_report) do
     previous_repositories = repository_options(previous_report)
 
-    if blocked?(report) and report.repositories == [] and previous_repositories != [] do
+    if blocked?(report) and report.repositories == [] and previous_repositories != [] and
+         not authoritative_empty_listing?(report.error_type) do
       %{
         report
         | repositories: previous_repositories,
@@ -482,6 +521,77 @@ defmodule JidoCode.Setup.GitHubRepositoryListing do
 
   defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_optional_string(_value), do: nil
+
+  defp installation_sync_state(onboarding_state) when is_map(onboarding_state) do
+    onboarding_state
+    |> fetch_step_state(7)
+    |> map_get(:installation_sync, "installation_sync", %{})
+    |> normalize_installation_sync_state()
+  end
+
+  defp installation_sync_state(_onboarding_state), do: nil
+
+  defp normalize_installation_sync_state(%{} = installation_sync) do
+    status =
+      installation_sync
+      |> map_get(:status, "status", nil)
+      |> normalize_installation_sync_status()
+
+    repositories =
+      installation_sync
+      |> map_get(:accessible_repositories, "accessible_repositories", [])
+      |> normalize_repository_options()
+      |> uniq_repository_options()
+      |> Enum.sort_by(fn repository -> {repository.full_name, repository.id} end)
+
+    detail =
+      installation_sync
+      |> map_get(:detail, "detail", nil)
+      |> normalize_optional_string()
+
+    remediation =
+      installation_sync
+      |> map_get(:remediation, "remediation", nil)
+      |> normalize_optional_string()
+
+    error_type =
+      installation_sync
+      |> map_get(:error_type, "error_type", nil)
+      |> normalize_error_type()
+
+    case status do
+      nil ->
+        nil
+
+      normalized_status ->
+        %{
+          status: normalized_status,
+          repositories: repositories,
+          detail:
+            detail ||
+              "Repository availability was updated from GitHub installation sync metadata.",
+          remediation:
+            remediation ||
+              if(normalized_status == :stale,
+                do: @default_installation_stale_remediation,
+                else: "Repository listing is ready."
+              ),
+          error_type:
+            if(normalized_status == :ready, do: error_type, else: error_type || @installation_stale_error_type)
+        }
+    end
+  end
+
+  defp normalize_installation_sync_state(_installation_sync), do: nil
+
+  defp normalize_installation_sync_status(:ready), do: :ready
+  defp normalize_installation_sync_status("ready"), do: :ready
+  defp normalize_installation_sync_status(:stale), do: :stale
+  defp normalize_installation_sync_status("stale"), do: :stale
+  defp normalize_installation_sync_status(_status), do: nil
+
+  defp authoritative_empty_listing?(@installation_revoked_error_type), do: true
+  defp authoritative_empty_listing?(_error_type), do: false
 
   defp fetch_step_state(onboarding_state, onboarding_step) when is_map(onboarding_state) do
     step_key = Integer.to_string(onboarding_step)

@@ -95,6 +95,30 @@ defmodule JidoCode.Setup.SystemConfig do
   def save_step_progress(_validated_state, _config_updates),
     do: {:error, save_error(:invalid_step_state, 1)}
 
+  @spec update_onboarding_state((onboarding_state() ->
+                                   onboarding_state() | {:ok, onboarding_state()} | {:error, term()})) ::
+          {:ok, t()} | {:error, save_error()}
+  def update_onboarding_state(updater) when is_function(updater, 1) do
+    case load() do
+      {:ok, %__MODULE__{} = config} ->
+        with {:ok, updated_onboarding_state} <-
+               apply_onboarding_state_update(updater, config.onboarding_state),
+             {:ok, persisted_config} <-
+               persist_config(%__MODULE__{config | onboarding_state: updated_onboarding_state}) do
+          {:ok, persisted_config}
+        else
+          {:error, reason} ->
+            {:error, save_error(reason, config.onboarding_step)}
+        end
+
+      {:error, reason} ->
+        {:error, save_error({:load_failed, reason}, onboarding_step_from_reason(reason))}
+    end
+  end
+
+  def update_onboarding_state(_updater),
+    do: {:error, save_error(:invalid_onboarding_state_updater, 1)}
+
   @doc false
   def default_loader do
     {:ok, Application.get_env(:jido_code, :system_config, %{})}
@@ -260,6 +284,30 @@ defmodule JidoCode.Setup.SystemConfig do
   end
 
   defp normalize_config_updates(_config_updates), do: {:error, :invalid_config_updates}
+
+  defp apply_onboarding_state_update(updater, onboarding_state) when is_function(updater, 1) do
+    try do
+      case updater.(onboarding_state) do
+        %{} = updated_onboarding_state ->
+          {:ok, updated_onboarding_state}
+
+        {:ok, %{} = updated_onboarding_state} ->
+          {:ok, updated_onboarding_state}
+
+        {:error, reason} ->
+          {:error, reason}
+
+        other ->
+          {:error, {:invalid_onboarding_state_update, other}}
+      end
+    rescue
+      exception ->
+        {:error, {:onboarding_state_update_exception, Exception.message(exception)}}
+    catch
+      kind, reason ->
+        {:error, {:onboarding_state_update_throw, {kind, reason}}}
+    end
+  end
 
   defp normalize_onboarding_completed_update(:__not_set__), do: {:ok, :__not_set__}
 

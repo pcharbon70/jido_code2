@@ -548,6 +548,13 @@ defmodule JidoCodeWeb.SetupLive do
               GitHub fetch error type: {@repository_listing_report.error_type}
             </p>
             <p
+              :if={@repository_listing_report}
+              id="setup-project-repository-listing-detail"
+              class="mt-1 text-sm text-base-content/80"
+            >
+              {@repository_listing_report.detail}
+            </p>
+            <p
               :if={@repository_listing_report && @repository_listing_report.status != :ready}
               id="setup-project-repository-listing-remediation"
               class="mt-1 text-sm text-warning"
