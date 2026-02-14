@@ -1237,6 +1237,53 @@ defmodule JidoCode.Orchestration.WorkflowRunTest do
     )
   end
 
+  test "publishes cross-run lifecycle events on the dashboard runs topic" do
+    {:ok, project} = create_project("owner/repo-dashboard-run-events")
+    assert :ok = RunPubSub.subscribe_runs()
+
+    completed_run_id = "dashboard-run-events-completed-#{System.unique_integer([:positive])}"
+
+    {:ok, completed_run} = create_run(project.id, completed_run_id, ~U[2026-02-15 05:00:00Z])
+
+    {:ok, completed_run} =
+      WorkflowRun.transition_status(completed_run, %{
+        to_status: :running,
+        current_step: "plan_changes",
+        transitioned_at: ~U[2026-02-15 05:01:00Z]
+      })
+
+    {:ok, _completed_run} =
+      WorkflowRun.transition_status(completed_run, %{
+        to_status: :completed,
+        current_step: "publish_pr",
+        transitioned_at: ~U[2026-02-15 05:02:00Z]
+      })
+
+    assert_runs_topic_event(completed_run_id, "run_started")
+    assert_runs_topic_event(completed_run_id, "run_completed")
+
+    failed_run_id = "dashboard-run-events-failed-#{System.unique_integer([:positive])}"
+
+    {:ok, failed_run} = create_run(project.id, failed_run_id, ~U[2026-02-15 06:00:00Z])
+
+    {:ok, failed_run} =
+      WorkflowRun.transition_status(failed_run, %{
+        to_status: :running,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 06:01:00Z]
+      })
+
+    {:ok, _failed_run} =
+      WorkflowRun.transition_status(failed_run, %{
+        to_status: :failed,
+        current_step: "run_tests",
+        transitioned_at: ~U[2026-02-15 06:02:00Z]
+      })
+
+    assert_runs_topic_event(failed_run_id, "run_started")
+    assert_runs_topic_event(failed_run_id, "run_failed")
+  end
+
   test "captures typed event-channel diagnostics when run topic publication fails" do
     Application.put_env(:jido_code, :workflow_run_event_broadcaster, FailingRunEventBroadcaster)
 
@@ -1354,6 +1401,26 @@ defmodule JidoCode.Orchestration.WorkflowRunTest do
       assert payload["correlation_id"] != ""
       assert {:ok, _timestamp, 0} = DateTime.from_iso8601(payload["timestamp"])
     end)
+  end
+
+  defp assert_runs_topic_event(run_id, expected_event, attempts \\ 16)
+
+  defp assert_runs_topic_event(_run_id, expected_event, 0) do
+    flunk("did not receive expected runs topic event #{expected_event}")
+  end
+
+  defp assert_runs_topic_event(run_id, expected_event, attempts) do
+    assert_receive {:run_event, payload}
+
+    if payload["run_id"] == run_id and payload["event"] == expected_event do
+      assert payload["workflow_name"] == "implement_task"
+      assert payload["workflow_version"] == 1
+      assert is_binary(payload["correlation_id"])
+      assert payload["correlation_id"] != ""
+      assert {:ok, _timestamp, 0} = DateTime.from_iso8601(payload["timestamp"])
+    else
+      assert_runs_topic_event(run_id, expected_event, attempts - 1)
+    end
   end
 
   defp assert_typed_publication_diagnostic(diagnostic, run_id, event_name) do
