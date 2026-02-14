@@ -118,6 +118,79 @@ defmodule JidoCodeWeb.SecuritySettingsLiveTest do
              "invalid_expired_or_revoked_api_key"
   end
 
+  test "security tab persists encrypted SecretRef metadata and never renders plaintext values", %{
+    conn: _conn
+  } do
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token, _owner} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/settings/security", on_error: :warn)
+
+    secret_name = "github/webhook_secret_#{System.unique_integer([:positive])}"
+    plaintext_value = "very-secret-value-#{System.unique_integer([:positive])}"
+
+    view
+    |> form("#settings-security-secret-form", %{
+      "security_secret" => %{
+        "scope" => "integration",
+        "name" => secret_name,
+        "value" => plaintext_value
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#settings-security-secret-metadata", secret_name)
+    assert has_element?(view, "#settings-security-secret-metadata", "integration")
+    refute has_element?(view, "#settings-security-secret-metadata", plaintext_value)
+    refute has_element?(view, "#settings-security-secret-value[value='#{plaintext_value}']")
+  end
+
+  test "security tab blocks secret persistence with typed remediation when encryption config is missing",
+       %{conn: _conn} do
+    original_key = Application.get_env(:jido_code, :secret_ref_encryption_key, :__missing__)
+
+    on_exit(fn ->
+      restore_env(:secret_ref_encryption_key, original_key)
+    end)
+
+    Application.delete_env(:jido_code, :secret_ref_encryption_key)
+
+    register_owner("owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token, _owner} =
+      authenticate_owner_conn("owner@example.com", "owner-password-123")
+
+    {:ok, view, _html} = live(recycle(authed_conn), ~p"/settings/security", on_error: :warn)
+
+    secret_name = "missing/encryption_#{System.unique_integer([:positive])}"
+
+    view
+    |> form("#settings-security-secret-form", %{
+      "security_secret" => %{
+        "scope" => "integration",
+        "name" => secret_name,
+        "value" => "plaintext-that-must-not-persist"
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-security-secret-error-type",
+             "secret_encryption_unavailable"
+           )
+
+    assert has_element?(
+             view,
+             "#settings-security-secret-error-recovery",
+             "JIDO_CODE_SECRET_REF_ENCRYPTION_KEY"
+           )
+
+    refute has_element?(view, "#settings-security-secret-metadata", secret_name)
+  end
+
   defp register_owner(email, password) do
     strategy = Info.strategy!(User, :password)
 
@@ -206,5 +279,13 @@ defmodule JidoCodeWeb.SecuritySettingsLiveTest do
 
     query = URI.encode_query(%{"token" => token})
     "#{path}?#{query}"
+  end
+
+  defp restore_env(key, :__missing__) do
+    Application.delete_env(:jido_code, key)
+  end
+
+  defp restore_env(key, value) do
+    Application.put_env(:jido_code, key, value)
   end
 end

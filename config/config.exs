@@ -85,7 +85,13 @@ config :spark,
 config :jido_code,
   ecto_repos: [JidoCode.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: [JidoCode.Accounts, JidoCode.GitHub, JidoCode.Forge.Domain, JidoCode.Folio],
+  ash_domains: [
+    JidoCode.Accounts,
+    JidoCode.GitHub,
+    JidoCode.Forge.Domain,
+    JidoCode.Folio,
+    JidoCode.Security
+  ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true],
   mailer: [from_name: "Agent Jido"],
   runtime_mode: config_env()

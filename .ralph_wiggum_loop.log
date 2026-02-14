@@ -7135,3 +7135,120 @@ Excluding tags: [:sprite_integration]
 .........
 Finished in 3.2 seconds (0.9s async, 2.2s sync)
 74 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `.env.example`
+- `config/config.exs`
+- `config/runtime.exs`
+- `config/test.exs`
+- `lib/jido_code/security.ex`
+- `lib/jido_code/security/encryption.ex`
+- `lib/jido_code/security/secret_ref.ex`
+- `lib/jido_code/security/secret_refs.ex`
+- `lib/jido_code_web/live/settings_live.ex`
+- `priv/repo/migrations/20260214130000_add_secret_refs.exs`
+- `priv/resource_snapshots/repo/secret_refs/20260214024233.json`
+- `test/jido_code/security/secret_refs_test.exs`
+- `test/jido_code_web/live/security_settings_live_test.exs`
+
+2) tests/commands executed
+- `mix format` (run via Mix task wrapper to bypass sandbox TCP pubsub issue): passed.
+- `mix compile --warnings-as-errors` (same wrapper): passed.
+- `mix precommit` (same wrapper): failed at DB setup (`Postgrex ... tcp connect (localhost:5432): not owner - :eperm`).
+- Targeted tests were added but not executable in this sandbox because DB connection/setup is blocked by environment policy.
+
+3) acceptance criteria coverage
+- AC1 `ciphertext` encrypted-only persistence:
+  - Added `SecretRef` resource/table with `ciphertext` field and `SecretRefs.persist_operational_secret/1` path that encrypts before write (`lib/jido_code/security/encryption.ex`, `lib/jido_code/security/secret_refs.ex`, migration).
+  - Added test asserting stored `ciphertext` is not plaintext: `test/jido_code/security/secret_refs_test.exs`.
+- AC2 metadata queryable without plaintext exposure:
+  - Added metadata read action + service projection excluding secret value, and rendered metadata list in `/settings/security`: `lib/jido_code/security/secret_ref.ex`, `lib/jido_code/security/secret_refs.ex`, `lib/jido_code_web/live/settings_live.ex`.
+  - Added LiveView test asserting metadata appears and plaintext is not rendered: `test/jido_code_web/live/security_settings_live_test.exs`.
+- AC3 typed remediation when encryption unavailable:
+  - Added typed error return (`secret_encryption_unavailable`) with remediation guidance when encryption key config is missing/invalid: `lib/jido_code/security/secret_refs.ex`.
+  - Added `/settings/security` UI typed error rendering and failure-path test: `lib/jido_code_web/live/settings_live.ex`, `test/jido_code_web/live/security_settings_live_test.exs`, `test/jido_code/security/secret_refs_test.exs`.
+
+4) blockers/assumptions
+- Blocker: sandbox prevents DB TCP connections (`localhost:5432`), so `mix precommit` and DB-backed tests cannot complete in this environment.
+- Assumption: secret encryption key is provided as `JIDO_CODE_SECRET_REF_ENCRYPTION_KEY` (base64-encoded 32-byte key), mapped to `:secret_ref_encryption_key` at runtime.
+Compiling 201 files (.ex)
+Generated jido_code app
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+    error: invalid argument for unary operator ^, expected an existing variable, got: ^metadata.id
+    │
+ 48 │              id: ^metadata.id,
+    │                  ^
+    │
+    └─ test/jido_code/security/secret_refs_test.exs:48:18: JidoCode.Security.SecretRefsTest."test persist_operational_secret stores encrypted ciphertext and metadata remains queryable"/1
+
+
+== Compilation error in file test/jido_code/security/secret_refs_test.exs ==
+** (CompileError) test/jido_code/security/secret_refs_test.exs: cannot compile module JidoCode.Security.SecretRefsTest (errors have been logged)
+
+Fixed the compile error for `ST-SEC-001` in `test/jido_code/security/secret_refs_test.exs`:
+
+- `test/jido_code/security/secret_refs_test.exs:46` added `metadata_id = metadata.id`
+- `test/jido_code/security/secret_refs_test.exs:49` changed invalid pin `^metadata.id` to `^metadata_id`
+- `test/jido_code/security/secret_refs_test.exs:54` and `test/jido_code/security/secret_refs_test.exs:56` now use `metadata_id` in lookups
+
+Validation I could run in this sandbox:
+- `compile --warnings-as-errors`: passed
+- `format --check-formatted`: passed
+
+`mix precommit` cannot be left passing in this environment because socket operations are blocked:
+- Mix PubSub/lock needs socket access (`:eperm`)
+- test setup fails connecting to Postgres (`tcp connect (localhost:5432): not owner - :eperm`)
+
+No commit was made, and nothing was pushed.
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 167972, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+.............    warning: Phoenix.ConnTest.get_flash/2 is deprecated. get_flash/2 is deprecated. Use Phoenix.Flash.get/2 instead
+    │
+ 19 │     assert get_flash(sign_out_response, :info) == "You are now signed out"
+    │            ~
+    │
+    └─ test/jido_code_web/live/auth_sign_out_live_test.exs:19:12: JidoCodeWeb.AuthSignOutLiveTest."test sign out clears browser session credentials and redirects protected routes to sign-in"/1
+    └─ test/jido_code_web/live/auth_sign_out_live_test.exs:45:12: JidoCodeWeb.AuthSignOutLiveTest."test failed session invalidation provides retry guidance and keeps session unchanged"/1
+
+.......**20:50:54.338 request_id=GJP9Lmp-lIRU4-EAAAHC [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+.20:50:54.367 request_id=GJP9Lm9shc-FWz0AAAKC [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+.......20:50:54.749 request_id=GJP9LoXvf-kDVs0AACWh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:54.765 request_id=GJP9LocBe7kDVs0AACXh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:54.771 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.20:50:54.840 request_id=GJP9Loux8EqjfcgAACbh [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.SettingsLive reason=missing_or_expired_session
+.20:50:54.859 request_id=GJP9Loyo9RvTFM0AAAOi [warning] auth_sign_out_failed reason=:forced_invalidation_failure
+20:50:54.863 request_id=GJP9LozXtoLTFM0AAAPC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:54.867 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+..20:50:55.046 [warning] Quality checks failed for test-fail-1027 (attempt 1/3), retrying...
+20:50:55.050 [warning] Quality checks failed for test-fail-1027 (attempt 2/3), retrying...
+20:50:55.055 [error] Quality checks failed for test-fail-1027 after 3 attempts, giving up
+20:50:55.056 [warning] Pull request failed for test-fail-1027 after 3 attempts
+.20:50:55.098 [warning] Quality checks failed for test-retry-1411 (attempt 1/3), retrying...
+20:50:55.102 [warning] Quality checks failed for test-retry-1411 (attempt 2/3), retrying...
+............20:50:55.645 request_id=GJP9LrrNQTCDV0EAAAPk [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:55.667 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.20:50:55.687 request_id=GJP9Lr3_sLj8qLUAACzh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:55.700 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.20:50:55.742 request_id=GJP9LsE8rb-8XfUAAC3B [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:55.770 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.20:50:55.809 request_id=GJP9LsU14OfcavsAAAri [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:55.826 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.20:50:55.891 request_id=GJP9LsoZyYMLNCkAAAxC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:50:55.901 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:50:55.907 request_id=GJP9Lsr6L3kLNCkAAC4h [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:50:55.920 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.20:50:55.976 request_id=GJP9Ls9j-eAfZKYAAAYE [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+........20:50:56.248 request_id=GJP9Lt9srb-CfKAAADJh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:50:56.251 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+..20:50:56.319 request_id=GJP9LuOkGFASDjYAADQB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:50:56.327 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+..20:50:56.406 request_id=GJP9LujTZ6gdWoUAADVh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:50:56.414 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.........20:50:56.623 request_id=GJP9LvXGBkwfddQAABFC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:50:56.631 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+.....
+Finished in 3.5 seconds (1.0s async, 2.5s sync)
+78 tests, 0 failures, 2 skipped (4 excluded)

@@ -3,6 +3,13 @@ defmodule JidoCodeWeb.SettingsLive do
 
   alias JidoCode.Accounts.SecurityTokens
   alias JidoCode.GitHub.Repo
+  alias JidoCode.Security.SecretRefs
+
+  @secret_scope_options [
+    {"Instance", "instance"},
+    {"Project", "project"},
+    {"Integration", "integration"}
+  ]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -17,6 +24,10 @@ defmodule JidoCodeWeb.SettingsLive do
       |> assign(:security_audit_events, [])
       |> assign(:security_revocation_error, nil)
       |> assign(:security_status_error, nil)
+      |> assign(:security_secret_refs, [])
+      |> assign(:security_secret_error, nil)
+      |> assign(:security_secret_form, empty_security_secret_form())
+      |> assign(:secret_scope_options, @secret_scope_options)
       |> stream(:repos, repos)
 
     {:ok, socket}
@@ -110,6 +121,10 @@ defmodule JidoCodeWeb.SettingsLive do
                   security_audit_events={@security_audit_events}
                   security_revocation_error={@security_revocation_error}
                   security_status_error={@security_status_error}
+                  security_secret_refs={@security_secret_refs}
+                  security_secret_error={@security_secret_error}
+                  security_secret_form={@security_secret_form}
+                  secret_scope_options={@secret_scope_options}
                 />
               <% _ -> %>
                 <.github_tab repos={@streams.repos} show_add_modal={@show_add_modal} form={@form} />
@@ -313,6 +328,127 @@ defmodule JidoCodeWeb.SettingsLive do
         <p id="settings-security-revocation-recovery" class="text-sm mt-1">
           {@security_revocation_error.recovery_instruction}
         </p>
+      </.card>
+
+      <.card id="settings-security-secret-refs" padding="medium" rounded="large">
+        <div class="space-y-4">
+          <div>
+            <h3 class="text-lg font-semibold">Operational Secret References</h3>
+            <p class="text-sm text-base-content/70">
+              Persist operational values as encrypted SecretRef ciphertext while keeping metadata queryable.
+            </p>
+          </div>
+
+          <.card
+            :if={@security_secret_error}
+            id="settings-security-secret-error"
+            padding="medium"
+            rounded="large"
+            class="border border-warning/50 bg-warning/10"
+          >
+            <p id="settings-security-secret-error-type" class="text-sm font-medium">
+              Typed error: {@security_secret_error.error_type}
+            </p>
+            <p id="settings-security-secret-error-message" class="text-sm mt-1">
+              {@security_secret_error.message}
+            </p>
+            <p id="settings-security-secret-error-recovery" class="text-sm mt-1">
+              {@security_secret_error.recovery_instruction}
+            </p>
+          </.card>
+
+          <.form
+            id="settings-security-secret-form"
+            for={@security_secret_form}
+            phx-submit="save_security_secret_ref"
+            class="grid gap-4 md:grid-cols-2"
+          >
+            <.input
+              id="settings-security-secret-scope"
+              field={@security_secret_form[:scope]}
+              type="select"
+              options={@secret_scope_options}
+              label="Scope"
+            />
+            <.input
+              id="settings-security-secret-name"
+              field={@security_secret_form[:name]}
+              type="text"
+              label="Name"
+              placeholder="github/webhook_secret"
+            />
+            <.input
+              id="settings-security-secret-value"
+              field={@security_secret_form[:value]}
+              type="password"
+              label="Secret Value"
+              placeholder="Never shown after save"
+            />
+
+            <div class="md:col-span-2">
+              <.button id="settings-security-secret-save" type="submit" color="primary">
+                Save SecretRef
+              </.button>
+            </div>
+          </.form>
+
+          <div id="settings-security-secret-metadata" class="space-y-3">
+            <.card
+              :if={Enum.empty?(@security_secret_refs)}
+              id="settings-security-secret-empty"
+              padding="medium"
+              rounded="large"
+            >
+              No SecretRef metadata stored yet.
+            </.card>
+
+            <.card
+              :for={secret <- @security_secret_refs}
+              id={"settings-security-secret-#{secret.id}"}
+              padding="medium"
+              rounded="large"
+            >
+              <dl class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div>
+                  <dt class="text-xs uppercase text-base-content/60">Scope</dt>
+                  <dd id={"settings-security-secret-scope-value-#{secret.id}"} class="font-medium">
+                    {secret.scope}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs uppercase text-base-content/60">Name</dt>
+                  <dd id={"settings-security-secret-name-value-#{secret.id}"} class="font-medium">
+                    {secret.name}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs uppercase text-base-content/60">Source</dt>
+                  <dd id={"settings-security-secret-source-value-#{secret.id}"} class="font-medium">
+                    {secret.source}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs uppercase text-base-content/60">Key Version</dt>
+                  <dd id={"settings-security-secret-key-version-#{secret.id}"} class="font-medium">
+                    {secret.key_version}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs uppercase text-base-content/60">Last Rotated At</dt>
+                  <dd id={"settings-security-secret-rotated-at-#{secret.id}"} class="font-medium">
+                    {format_security_datetime(secret.last_rotated_at)}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs uppercase text-base-content/60">Expires At</dt>
+                  <dd id={"settings-security-secret-expires-at-#{secret.id}"} class="font-medium">
+                    {format_optional_security_datetime(secret.expires_at)}
+                  </dd>
+                </div>
+              </dl>
+            </.card>
+          </div>
+        </div>
       </.card>
 
       <div id="settings-security-token-status" class="space-y-3">
@@ -524,6 +660,35 @@ defmodule JidoCodeWeb.SettingsLive do
     end
   end
 
+  def handle_event("save_security_secret_ref", %{"security_secret" => params}, socket) do
+    case SecretRefs.persist_operational_secret(params) do
+      {:ok, _secret_metadata} ->
+        socket =
+          socket
+          |> assign(:security_secret_error, nil)
+          |> assign(:security_secret_form, empty_security_secret_form())
+          |> load_security_secret_metadata()
+          |> put_flash(:info, "SecretRef saved.")
+
+        {:noreply, socket}
+
+      {:error, typed_error} ->
+        socket =
+          socket
+          |> assign(:security_secret_error, typed_error)
+          |> assign(
+            :security_secret_form,
+            empty_security_secret_form(%{
+              "scope" => Map.get(params, "scope", "integration"),
+              "name" => Map.get(params, "name", ""),
+              "value" => ""
+            })
+          )
+
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("revoke_security_token", %{"jti" => jti}, socket) do
     owner_id = current_owner_id(socket)
 
@@ -562,7 +727,12 @@ defmodule JidoCodeWeb.SettingsLive do
     end
   end
 
-  defp maybe_load_security_tab(socket, "security"), do: load_security_status(socket)
+  defp maybe_load_security_tab(socket, "security") do
+    socket
+    |> load_security_status()
+    |> load_security_secret_metadata()
+  end
+
   defp maybe_load_security_tab(socket, _tab), do: socket
 
   defp load_security_status(socket) do
@@ -591,6 +761,20 @@ defmodule JidoCodeWeb.SettingsLive do
     assign(socket, :security_audit_events, [event | socket.assigns.security_audit_events])
   end
 
+  defp load_security_secret_metadata(socket) do
+    case SecretRefs.list_secret_metadata() do
+      {:ok, secret_refs} ->
+        socket
+        |> assign(:security_secret_refs, secret_refs)
+        |> assign(:security_secret_error, nil)
+
+      {:error, typed_error} ->
+        socket
+        |> assign(:security_secret_refs, [])
+        |> assign(:security_secret_error, typed_error)
+    end
+  end
+
   defp current_owner_id(socket) do
     socket.assigns
     |> Map.get(:current_user)
@@ -607,6 +791,16 @@ defmodule JidoCodeWeb.SettingsLive do
   defp format_security_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp format_security_datetime(nil), do: "Not revoked"
   defp format_security_datetime(_value), do: "Unavailable"
+
+  defp format_optional_security_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp format_optional_security_datetime(nil), do: "Never"
+  defp format_optional_security_datetime(_value), do: "Unavailable"
+
+  defp empty_security_secret_form(params \\ %{}) do
+    defaults = %{"scope" => "integration", "name" => "", "value" => ""}
+    params = Map.merge(defaults, params)
+    to_form(params, as: :security_secret)
+  end
 
   defp security_audit_message(audit) do
     source_label =
