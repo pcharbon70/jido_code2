@@ -9,7 +9,7 @@ defmodule JidoCodeWeb.Layouts do
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
   # and other static content.
-  embed_templates "layouts/*"
+  embed_templates("layouts/*")
 
   @doc """
   Renders your app layout.
@@ -25,13 +25,14 @@ defmodule JidoCodeWeb.Layouts do
       </Layouts.app>
 
   """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
+  attr(:flash, :map, required: true, doc: "the map of flash messages")
 
-  attr :current_scope, :map,
+  attr(:current_scope, :map,
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
+  )
 
-  slot :inner_block, required: true
+  slot(:inner_block, required: true)
 
   def app(assigns) do
     ~H"""
@@ -46,6 +47,9 @@ defmodule JidoCodeWeb.Layouts do
           </li>
           <li>
             <.link navigate={~p"/forge"} class="btn btn-ghost btn-sm">Forge</.link>
+          </li>
+          <li>
+            <.link navigate={~p"/agents"} class="btn btn-ghost btn-sm">Agents</.link>
           </li>
           <li>
             <.link navigate={~p"/settings"} class="btn btn-ghost btn-sm">Settings</.link>
@@ -112,10 +116,10 @@ defmodule JidoCodeWeb.Layouts do
   @doc """
   Wrapper component for LiveToast.toast_group that loads the module dynamically.
   """
-  attr :flash, :map, required: true
-  attr :connected, :boolean, required: true
-  attr :corner, :atom, default: :bottom_right
-  attr :toasts_sync, :list, default: []
+  attr(:flash, :map, required: true)
+  attr(:connected, :boolean, required: true)
+  attr(:corner, :atom, default: :bottom_right)
+  attr(:toasts_sync, :list, default: [])
 
   def live_toast_group(assigns) do
     # Dynamically render LiveToast component
