@@ -143,6 +143,174 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
     end)
   end
 
+  test "renders run artifact browser categories with stable view identifiers", %{conn: _conn} do
+    register_owner("artifact-browser-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("artifact-browser-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-artifact-browser",
+        github_full_name: "owner/repo-run-detail-artifact-browser",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    run_id = "run-detail-artifact-browser-#{System.unique_integer([:positive])}"
+
+    {:ok, _run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: run_id,
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Render artifact browser"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "artifact-browser-owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 06:45:00Z],
+        step_results: %{
+          "run_logs" => [
+            %{
+              "event" => "step_started",
+              "message" => "Preparing implementation branch."
+            }
+          ],
+          "diff_summary" => "3 files changed (+12/-3).",
+          "failure_report" => %{
+            "step" => "run_tests",
+            "summary" => "1 test failed in CI."
+          },
+          "pull_request" => %{
+            "number" => 451,
+            "url" => "https://github.com/owner/repo-run-detail-artifact-browser/pull/451",
+            "head_branch" => "jidocode/implement-task/run-abc123"
+          }
+        }
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{run_id}",
+        on_error: :warn
+      )
+
+    assert has_element?(view, "#run-detail-artifact-browser")
+    assert has_element?(view, "#run-detail-artifact-category-title-logs", "Logs")
+
+    assert has_element?(
+             view,
+             "#run-detail-artifact-category-title-diff_summaries",
+             "Diff summaries"
+           )
+
+    assert has_element?(view, "#run-detail-artifact-category-title-reports", "Reports")
+    assert has_element?(view, "#run-detail-artifact-category-title-pr_metadata", "PR metadata")
+
+    assert has_element?(view, "#run-detail-artifact-entry-logs-run-logs")
+    assert has_element?(view, "#run-detail-artifact-view-logs-run-logs", "View artifact")
+    assert has_element?(view, "#run-detail-artifact-source-logs-run-logs", "run_logs")
+
+    assert has_element?(view, "#run-detail-artifact-entry-diff-summaries-diff-summary")
+
+    assert has_element?(
+             view,
+             "#run-detail-artifact-view-diff-summaries-diff-summary",
+             "View artifact"
+           )
+
+    assert has_element?(view, "#run-detail-artifact-entry-reports-failure-report")
+    assert has_element?(view, "#run-detail-artifact-view-reports-failure-report", "View artifact")
+
+    assert has_element?(view, "#run-detail-artifact-entry-pr-metadata-pull-request")
+
+    assert has_element?(
+             view,
+             "#run-detail-artifact-view-pr-metadata-pull-request",
+             "View artifact"
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-artifact-payload-content-pr-metadata-pull-request",
+             "pull/451"
+           )
+
+    refute has_element?(view, "#run-detail-artifact-category-missing-logs")
+    refute has_element?(view, "#run-detail-artifact-category-missing-diff_summaries")
+    refute has_element?(view, "#run-detail-artifact-category-missing-reports")
+    refute has_element?(view, "#run-detail-artifact-category-missing-pr_metadata")
+  end
+
+  test "shows missing artifact status per category when artifact records are unavailable", %{
+    conn: _conn
+  } do
+    register_owner("artifact-missing-owner@example.com", "owner-password-123")
+
+    {authed_conn, _session_token} =
+      authenticate_owner_conn("artifact-missing-owner@example.com", "owner-password-123")
+
+    {:ok, project} =
+      Project.create(%{
+        name: "repo-run-detail-artifact-missing",
+        github_full_name: "owner/repo-run-detail-artifact-missing",
+        default_branch: "main",
+        settings: %{}
+      })
+
+    run_id = "run-detail-artifact-missing-#{System.unique_integer([:positive])}"
+
+    {:ok, _run} =
+      WorkflowRun.create(%{
+        project_id: project.id,
+        run_id: run_id,
+        workflow_name: "implement_task",
+        workflow_version: 2,
+        trigger: %{source: "workflows", mode: "manual"},
+        inputs: %{"task_summary" => "Render missing artifact states"},
+        input_metadata: %{"task_summary" => %{required: true, source: "manual_workflows_ui"}},
+        initiating_actor: %{id: "owner-1", email: "artifact-missing-owner@example.com"},
+        current_step: "queued",
+        started_at: ~U[2026-02-15 06:50:00Z],
+        step_results: %{
+          "diff_summary" => "1 file changed (+2/-0)."
+        }
+      })
+
+    {:ok, view, _html} =
+      live(
+        recycle(authed_conn),
+        ~p"/projects/#{project.id}/runs/#{run_id}",
+        on_error: :warn
+      )
+
+    assert has_element?(view, "#run-detail-title", "Workflow run detail")
+    assert has_element?(view, "#run-detail-artifact-browser")
+    assert has_element?(view, "#run-detail-artifact-entry-diff-summaries-diff-summary")
+    refute has_element?(view, "#run-detail-artifact-category-missing-diff_summaries")
+
+    assert has_element?(
+             view,
+             "#run-detail-artifact-category-missing-logs",
+             "Missing artifact records for this category."
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-artifact-category-missing-reports",
+             "Missing artifact records for this category."
+           )
+
+    assert has_element?(
+             view,
+             "#run-detail-artifact-category-missing-pr_metadata",
+             "Missing artifact records for this category."
+           )
+  end
+
   test "renders issue triage artifact set for issue_triage workflow runs", %{conn: _conn} do
     register_owner("issue-triage-artifacts-owner@example.com", "owner-password-123")
 
@@ -491,7 +659,9 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
     refute has_element?(view, "#run-detail-reject-button[disabled]")
   end
 
-  test "approves awaiting run, resumes execution, and records timeline audit metadata", %{conn: _conn} do
+  test "approves awaiting run, resumes execution, and records timeline audit metadata", %{
+    conn: _conn
+  } do
     register_owner("approval-resume-owner@example.com", "owner-password-123")
 
     {authed_conn, _session_token} =
@@ -870,7 +1040,9 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
     assert persisted_run.current_step == "approval_gate"
   end
 
-  test "renders standardized failure context with remediation hints for failed runs", %{conn: _conn} do
+  test "renders standardized failure context with remediation hints for failed runs", %{
+    conn: _conn
+  } do
     register_owner("failure-context-owner@example.com", "owner-password-123")
 
     {authed_conn, _session_token} =
@@ -1003,9 +1175,10 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
     assert has_element?(view, "#run-detail-failure-missing-fields", "last_successful_step")
   end
 
-  test "retries a failed run from run detail and preserves prior failure lineage on the new attempt", %{
-    conn: _conn
-  } do
+  test "retries a failed run from run detail and preserves prior failure lineage on the new attempt",
+       %{
+         conn: _conn
+       } do
     register_owner("retry-owner@example.com", "owner-password-123")
 
     {authed_conn, _session_token} =
@@ -1088,7 +1261,13 @@ defmodule JidoCodeWeb.RunDetailLiveTest do
 
     assert has_element?(retry_view, "#run-detail-retry-parent-run", failed_run_id)
     assert has_element?(retry_view, "#run-detail-retry-lineage-run-id-1", failed_run_id)
-    assert has_element?(retry_view, "#run-detail-retry-lineage-reason-type-1", "verification_failed")
+
+    assert has_element?(
+             retry_view,
+             "#run-detail-retry-lineage-reason-type-1",
+             "verification_failed"
+           )
+
     assert has_element?(retry_view, "#run-detail-retry-lineage-artifact-count-1", "2")
   end
 

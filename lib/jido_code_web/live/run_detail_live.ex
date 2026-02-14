@@ -16,6 +16,12 @@ defmodule JidoCodeWeb.RunDetailLive do
                             "run_cancelled"
                           ])
   @run_event_refresh_delay_ms 50
+  @artifact_categories [
+    %{id: "logs", label: "Logs"},
+    %{id: "diff_summaries", label: "Diff summaries"},
+    %{id: "reports", label: "Reports"},
+    %{id: "pr_metadata", label: "PR metadata"}
+  ]
 
   @impl true
   def mount(%{"id" => project_id, "run_id" => run_id}, _session, socket) do
@@ -292,6 +298,61 @@ defmodule JidoCodeWeb.RunDetailLive do
             </section>
           <% end %>
 
+          <section id="run-detail-artifact-browser" class="space-y-3 rounded border border-base-300 bg-base-100 p-4">
+            <h2 class="text-lg font-semibold">Run artifacts</h2>
+            <p id="run-detail-artifact-browser-note" class="text-sm text-base-content/80">
+              Browse persisted artifact records grouped by category.
+            </p>
+
+            <section
+              :for={category <- @artifact_categories}
+              id={"run-detail-artifact-category-#{category.id}"}
+              class="space-y-2 rounded border border-base-300/70 bg-base-200/30 p-3"
+            >
+              <h3 id={"run-detail-artifact-category-title-#{category.id}"} class="text-sm font-semibold">
+                {category.label}
+              </h3>
+
+              <%= if category.entries == [] do %>
+                <p id={"run-detail-artifact-category-missing-#{category.id}"} class="text-xs text-warning">
+                  Missing artifact records for this category.
+                </p>
+              <% else %>
+                <ol id={"run-detail-artifact-category-list-#{category.id}"} class="space-y-2">
+                  <li
+                    :for={entry <- category.entries}
+                    id={"run-detail-artifact-entry-#{entry.identifier}"}
+                    class="space-y-1 rounded border border-base-300 bg-base-100 p-2"
+                  >
+                    <p id={"run-detail-artifact-identifier-#{entry.identifier}"} class="text-xs">
+                      Identifier: <span class="font-mono">{entry.identifier}</span>
+                    </p>
+                    <p id={"run-detail-artifact-source-#{entry.identifier}"} class="text-xs text-base-content/80">
+                      Source: <span class="font-mono">{entry.source}</span>
+                    </p>
+                    <.link
+                      id={"run-detail-artifact-view-#{entry.identifier}"}
+                      href={"#run-detail-artifact-payload-#{entry.identifier}"}
+                      class="link link-primary text-xs"
+                    >
+                      View artifact
+                    </.link>
+                    <article
+                      id={"run-detail-artifact-payload-#{entry.identifier}"}
+                      class="rounded border border-base-300/70 bg-base-200/40 p-2"
+                    >
+                      <p class="text-xs font-medium">{entry.summary}</p>
+                      <pre
+                        id={"run-detail-artifact-payload-content-#{entry.identifier}"}
+                        class="mt-1 overflow-x-auto whitespace-pre-wrap text-xs leading-5"
+                      >{entry.payload}</pre>
+                    </article>
+                  </li>
+                </ol>
+              <% end %>
+            </section>
+          </section>
+
           <%= if @failure_context do %>
             <section id="run-detail-failure-context" class="space-y-2 rounded border border-error/40 bg-error/5 p-4">
               <h2 class="text-lg font-semibold text-error">Failure context</h2>
@@ -563,6 +624,7 @@ defmodule JidoCodeWeb.RunDetailLive do
     |> assign(:run, nil)
     |> assign(:timeline_entries, [])
     |> assign(:retry_lineage_entries, [])
+    |> assign(:artifact_categories, default_artifact_categories())
     |> assign(:failure_context, nil)
     |> assign(:issue_triage_artifacts, nil)
     |> assign(:approval_context, nil)
@@ -585,6 +647,7 @@ defmodule JidoCodeWeb.RunDetailLive do
     |> assign(:run, run)
     |> assign(:timeline_entries, timeline_entries(run))
     |> assign(:retry_lineage_entries, retry_lineage_entries(run))
+    |> assign(:artifact_categories, artifact_categories(run))
     |> assign(:failure_context, failure_context(run))
     |> assign(:issue_triage_artifacts, issue_triage_artifacts(run))
     |> assign(:approval_context, approval_context(run))
@@ -819,7 +882,8 @@ defmodule JidoCodeWeb.RunDetailLive do
                 remediation:
                   typed_failure
                   |> map_get(:remediation, "remediation")
-                  |> normalize_optional_string() || "Retry issue response posting from run detail."
+                  |> normalize_optional_string() ||
+                    "Retry issue response posting from run detail."
               }
 
             _other ->
@@ -853,7 +917,11 @@ defmodule JidoCodeWeb.RunDetailLive do
             |> normalize_optional_integer(),
           response_posted_at:
             response_post_artifact
-            |> map_get(:posted_at, "posted_at", map_get(response_post_artifact, :attempted_at, "attempted_at"))
+            |> map_get(
+              :posted_at,
+              "posted_at",
+              map_get(response_post_artifact, :attempted_at, "attempted_at")
+            )
             |> normalize_optional_string(),
           issue_reference:
             linked_run
@@ -888,6 +956,181 @@ defmodule JidoCodeWeb.RunDetailLive do
   end
 
   defp issue_triage_artifacts(_run), do: nil
+
+  defp default_artifact_categories do
+    Enum.map(@artifact_categories, fn category ->
+      Map.put(category, :entries, [])
+    end)
+  end
+
+  defp artifact_categories(%WorkflowRun{} = run) do
+    step_results =
+      run
+      |> Map.get(:step_results, %{})
+      |> normalize_map()
+
+    artifact_nodes = collect_artifact_nodes(step_results)
+
+    Enum.map(@artifact_categories, fn category ->
+      entries =
+        artifact_nodes
+        |> Enum.filter(&artifact_matches_category?(&1, category.id))
+        |> Enum.map(&artifact_entry(category.id, &1))
+        |> Enum.uniq_by(& &1.source)
+        |> Enum.sort_by(& &1.source)
+
+      Map.put(category, :entries, entries)
+    end)
+  end
+
+  defp artifact_categories(_run), do: default_artifact_categories()
+
+  defp collect_artifact_nodes(%{} = value), do: collect_artifact_nodes(value, [])
+
+  defp collect_artifact_nodes(%{} = value, path) when is_list(path) do
+    Enum.flat_map(value, fn {key, nested_value} ->
+      path_segment = artifact_path_segment(key)
+      next_path = path ++ [path_segment]
+
+      [%{path: next_path, value: nested_value} | collect_artifact_nodes(nested_value, next_path)]
+    end)
+  end
+
+  defp collect_artifact_nodes(value, path) when is_list(value) and is_list(path) do
+    value
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {nested_value, index} ->
+      collect_artifact_nodes(nested_value, path ++ ["item_#{index}"])
+    end)
+  end
+
+  defp collect_artifact_nodes(_value, _path), do: []
+
+  defp artifact_matches_category?(artifact_node, category_id) when is_map(artifact_node) do
+    artifact_key =
+      artifact_node
+      |> Map.get(:path, [])
+      |> List.last()
+      |> normalize_optional_string()
+      |> case do
+        nil -> ""
+        value -> String.downcase(value)
+      end
+
+    artifact_value = Map.get(artifact_node, :value)
+
+    case category_id do
+      "logs" ->
+        artifact_key in ["run_logs", "logs", "log", "stdout", "stderr"] or
+          String.ends_with?(artifact_key, "_logs") or String.ends_with?(artifact_key, "_log")
+
+      "diff_summaries" ->
+        artifact_key == "diff_summary" or String.ends_with?(artifact_key, "_diff_summary")
+
+      "reports" ->
+        artifact_key == "report" or artifact_key == "failure_report" or
+          String.ends_with?(artifact_key, "_report")
+
+      "pr_metadata" ->
+        artifact_key in ["pull_request", "pr_metadata", "pr"] or
+          String.starts_with?(artifact_key, "pr_") or String.ends_with?(artifact_key, "_pr") or
+          pr_metadata_map?(artifact_value)
+
+      _other ->
+        false
+    end
+  end
+
+  defp artifact_matches_category?(_artifact_node, _category_id), do: false
+
+  defp pr_metadata_map?(%{} = artifact_value) do
+    artifact_value
+    |> Map.keys()
+    |> Enum.map(fn key ->
+      key
+      |> normalize_optional_string()
+      |> case do
+        nil -> nil
+        value -> String.downcase(value)
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.any?(fn key ->
+      key in ["pr_url", "pr_number", "pr_title", "pull_request_url", "pull_request_number"]
+    end)
+  end
+
+  defp pr_metadata_map?(_artifact_value), do: false
+
+  defp artifact_entry(category_id, artifact_node)
+       when is_binary(category_id) and is_map(artifact_node) do
+    source_path =
+      artifact_node
+      |> Map.get(:path, [])
+      |> Enum.map(&artifact_path_segment/1)
+      |> Enum.join(".")
+
+    artifact_value = Map.get(artifact_node, :value)
+
+    %{
+      identifier: artifact_identifier(category_id, source_path),
+      source: source_path,
+      summary: artifact_summary(artifact_value),
+      payload: artifact_payload(artifact_value)
+    }
+  end
+
+  defp artifact_entry(category_id, _artifact_node) do
+    %{
+      identifier: artifact_identifier(category_id, "artifact"),
+      source: "artifact",
+      summary: "Artifact payload unavailable.",
+      payload: "Artifact payload unavailable."
+    }
+  end
+
+  defp artifact_identifier(category_id, source_path)
+       when is_binary(category_id) and is_binary(source_path) do
+    [category_id, source_path]
+    |> Enum.join("-")
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "artifact"
+      identifier -> identifier
+    end
+  end
+
+  defp artifact_identifier(_category_id, _source_path), do: "artifact"
+
+  defp artifact_summary(%{} = value), do: "Map artifact (#{map_size(value)} keys)"
+  defp artifact_summary(value) when is_list(value), do: "List artifact (#{length(value)} items)"
+
+  defp artifact_summary(value) when is_binary(value) do
+    trimmed_value = String.trim(value)
+
+    if String.length(trimmed_value) > 96 do
+      String.slice(trimmed_value, 0, 96) <> "..."
+    else
+      trimmed_value
+    end
+  end
+
+  defp artifact_summary(value), do: inspect(value)
+
+  defp artifact_payload(value) do
+    inspect(value, pretty: true, limit: :infinity, printable_limit: :infinity, width: 120)
+  end
+
+  defp artifact_path_segment(segment) do
+    segment
+    |> normalize_optional_string()
+    |> case do
+      nil -> inspect(segment)
+      normalized_segment -> normalized_segment
+    end
+  end
 
   defp approval_context(%WorkflowRun{} = run) do
     step_results =
