@@ -102,6 +102,11 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
   @dry_run_validation_remediation """
   Resolve dry-run policy conflicts by disabling side-effect shipping directives, then retry CommitAndPR shipping.
   """
+  @audit_persistence_error_type "workflow_commit_and_pr_audit_persistence_failed"
+  @audit_persistence_operation "persist_git_side_effect_audit_metadata"
+  @audit_persistence_remediation """
+  Restore git audit persistence health, then retry shipping. Git side effects are rejected unless audit metadata is durable.
+  """
   @dry_run_shipping_mode "dry_run"
   @dry_run_shipping_mode_aliases ~w(dry_run dry-run dryrun preview report_only)
   @ship_shipping_mode_aliases ~w(ship full push commit_push_pr)
@@ -179,6 +184,15 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
            validate_commit_message_contract(args, resolved_branch_context, opts),
          {:ok, dry_run_context} <-
            validate_dry_run_shipping_mode(args, resolved_branch_context, opts) do
+      policy_checks = %{
+        workspace_cleanliness: workspace_policy_check,
+        secret_scan: secret_scan_policy_check,
+        diff_size_threshold: diff_size_policy_check,
+        binary_file_policy: binary_file_policy_check
+      }
+
+      commit_message = commit_message_artifact(commit_message_contract_check)
+
       dry_run_bundle =
         dry_run_artifact(
           dry_run_context,
@@ -193,43 +207,64 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
 
       case maybe_execute_push(args, resolved_branch_context, branch_setup, opts, dry_run_context) do
         {:ok, push_execution} ->
-          {:ok,
-           %{
-             run_artifacts: %{
-               branch_name: Map.fetch!(resolved_branch_context, :branch_name),
-               branch_derivation: Map.fetch!(resolved_branch_context, :branch_derivation),
-               commit_message: commit_message_artifact(commit_message_contract_check),
-               commit_message_contract: commit_message_contract_check,
-               collision_handling:
-                 branch_setup
-                 |> map_get(:collision_handling, "collision_handling")
-                 |> normalize_map(),
-               policy_checks: %{
-                 workspace_cleanliness: workspace_policy_check,
-                 secret_scan: secret_scan_policy_check,
-                 diff_size_threshold: diff_size_policy_check,
-                 binary_file_policy: binary_file_policy_check
-               },
-               dry_run: dry_run_bundle,
-               push: Map.get(push_execution, :push, %{}),
-               push_auth_recovery: Map.get(push_execution, :push_auth_recovery, %{}),
-               run_logs: Map.get(push_execution, :run_logs, [])
-             },
-             branch_setup: branch_setup,
-             commit_message: commit_message_artifact(commit_message_contract_check),
-             commit_message_contract: commit_message_contract_check,
-             policy_checks: %{
-               workspace_cleanliness: workspace_policy_check,
-               secret_scan: secret_scan_policy_check,
-               diff_size_threshold: diff_size_policy_check,
-               binary_file_policy: binary_file_policy_check
-             },
-             dry_run: dry_run_bundle,
-             push: Map.get(push_execution, :push, %{}),
-             push_auth_recovery: Map.get(push_execution, :push_auth_recovery, %{}),
-             shipping_flow: Map.get(push_execution, :shipping_flow, %{}),
-             run_logs: Map.get(push_execution, :run_logs, [])
-           }}
+          git_side_effect_audits =
+            build_git_side_effect_audits(
+              args,
+              resolved_branch_context,
+              branch_setup,
+              push_execution,
+              commit_message_contract_check,
+              policy_checks,
+              dry_run_context
+            )
+
+          case persist_git_side_effect_audits(git_side_effect_audits, opts) do
+            {:ok, persisted_git_side_effect_audits} ->
+              git_side_effect_audit_lineage =
+                git_side_effect_audit_lineage(persisted_git_side_effect_audits)
+
+              {:ok,
+               %{
+                 run_artifacts: %{
+                   branch_name: Map.fetch!(resolved_branch_context, :branch_name),
+                   branch_derivation: Map.fetch!(resolved_branch_context, :branch_derivation),
+                   commit_message: commit_message,
+                   commit_message_contract: commit_message_contract_check,
+                   collision_handling:
+                     branch_setup
+                     |> map_get(:collision_handling, "collision_handling")
+                     |> normalize_map(),
+                   policy_checks: policy_checks,
+                   dry_run: dry_run_bundle,
+                   push: Map.get(push_execution, :push, %{}),
+                   push_auth_recovery: Map.get(push_execution, :push_auth_recovery, %{}),
+                   run_logs: Map.get(push_execution, :run_logs, []),
+                   git_side_effect_audits: persisted_git_side_effect_audits,
+                   git_side_effect_audit_lineage: git_side_effect_audit_lineage
+                 },
+                 branch_setup: branch_setup,
+                 commit_message: commit_message,
+                 commit_message_contract: commit_message_contract_check,
+                 policy_checks: policy_checks,
+                 dry_run: dry_run_bundle,
+                 push: Map.get(push_execution, :push, %{}),
+                 push_auth_recovery: Map.get(push_execution, :push_auth_recovery, %{}),
+                 shipping_flow: Map.get(push_execution, :shipping_flow, %{}),
+                 run_logs: Map.get(push_execution, :run_logs, []),
+                 git_side_effect_audits: persisted_git_side_effect_audits,
+                 git_side_effect_audit_lineage: git_side_effect_audit_lineage
+               }}
+
+            {:error, audit_failure} ->
+              {:error,
+               audit_persistence_error(
+                 resolved_branch_context,
+                 policy_checks,
+                 git_side_effect_audits,
+                 push_execution,
+                 audit_failure
+               )}
+          end
 
         {:error, push_failure} ->
           {:error, push_failure}
@@ -2834,6 +2869,467 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
          _commit_message_contract_check
        ),
        do: %{}
+
+  defp build_git_side_effect_audits(
+         args,
+         branch_context,
+         branch_setup,
+         push_execution,
+         commit_message_contract_check,
+         policy_checks,
+         dry_run_context
+       )
+       when is_map(args) and is_map(branch_context) and is_map(branch_setup) and
+              is_map(push_execution) and is_map(commit_message_contract_check) and
+              is_map(policy_checks) and is_map(dry_run_context) do
+    action_context = git_side_effect_action_context(args, branch_context)
+
+    policy_check_outcomes =
+      commit_push_pr_policy_check_outcomes(policy_checks, commit_message_contract_check)
+
+    [
+      build_git_side_effect_audit_record(
+        "setup_branch",
+        action_context,
+        setup_branch_audit_status(branch_setup),
+        setup_branch_command_intent(branch_context, branch_setup),
+        nil
+      ),
+      build_git_side_effect_audit_record(
+        "commit",
+        action_context,
+        commit_audit_status(dry_run_context),
+        commit_command_intent(commit_message_contract_check),
+        policy_check_outcomes
+      ),
+      build_git_side_effect_audit_record(
+        "push",
+        action_context,
+        push_audit_status(push_execution, dry_run_context),
+        push_command_intent(branch_context, push_execution),
+        policy_check_outcomes
+      ),
+      build_git_side_effect_audit_record(
+        "create_pr",
+        action_context,
+        create_pr_audit_status(push_execution, dry_run_context),
+        create_pr_command_intent(branch_context),
+        policy_check_outcomes
+      )
+    ]
+    |> Enum.with_index(1)
+    |> Enum.map(fn {record, index} ->
+      Map.put(record, :lineage_index, index)
+    end)
+  end
+
+  defp build_git_side_effect_audits(
+         _args,
+         _branch_context,
+         _branch_setup,
+         _push_execution,
+         _commit_message_contract_check,
+         _policy_checks,
+         _dry_run_context
+       ),
+       do: []
+
+  defp git_side_effect_action_context(args, branch_context)
+       when is_map(args) and is_map(branch_context) do
+    actor = audit_actor(args)
+    branch_derivation = branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map()
+
+    %{
+      actor_id: Map.get(actor, :id, "unknown"),
+      actor_email: Map.get(actor, :email),
+      workflow_name:
+        branch_derivation
+        |> map_get(
+          :workflow_name,
+          "workflow_name",
+          args |> map_get(:workflow_name, "workflow_name")
+        )
+        |> normalize_optional_string() || "unknown",
+      run_id:
+        branch_derivation
+        |> map_get(
+          :run_id,
+          "run_id",
+          args |> map_get(:run_id, "run_id")
+        )
+        |> normalize_optional_string() || "unknown",
+      branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+    }
+  end
+
+  defp git_side_effect_action_context(_args, _branch_context) do
+    %{
+      actor_id: "unknown",
+      actor_email: nil,
+      workflow_name: "unknown",
+      run_id: "unknown",
+      branch_name: nil
+    }
+  end
+
+  defp audit_actor(args) when is_map(args) do
+    actor =
+      args
+      |> map_get(:actor, "actor", map_get(args, :initiating_actor, "initiating_actor", %{}))
+      |> normalize_map()
+
+    %{
+      id:
+        actor
+        |> map_get(:id, "id", map_get(args, :actor_id, "actor_id"))
+        |> normalize_optional_string() || "unknown",
+      email:
+        actor
+        |> map_get(:email, "email", map_get(args, :actor_email, "actor_email"))
+        |> normalize_optional_string()
+    }
+  end
+
+  defp audit_actor(_args), do: %{id: "unknown", email: nil}
+
+  defp commit_push_pr_policy_check_outcomes(policy_checks, commit_message_contract_check)
+       when is_map(policy_checks) and is_map(commit_message_contract_check) do
+    %{
+      workspace_cleanliness:
+        policy_check_outcome(map_get(policy_checks, :workspace_cleanliness, "workspace_cleanliness")),
+      secret_scan: policy_check_outcome(map_get(policy_checks, :secret_scan, "secret_scan")),
+      diff_size_threshold: policy_check_outcome(map_get(policy_checks, :diff_size_threshold, "diff_size_threshold")),
+      binary_file_policy: policy_check_outcome(map_get(policy_checks, :binary_file_policy, "binary_file_policy")),
+      commit_message_contract: policy_check_outcome(commit_message_contract_check)
+    }
+  end
+
+  defp commit_push_pr_policy_check_outcomes(_policy_checks, _commit_message_contract_check), do: %{}
+
+  defp policy_check_outcome(%{} = policy_check) do
+    %{
+      status: map_get(policy_check, :status, "status", "unknown")
+    }
+    |> maybe_put_optional(:decision, map_get(policy_check, :decision, "decision"))
+    |> maybe_put_optional(:scan_status, map_get(policy_check, :scan_status, "scan_status"))
+  end
+
+  defp policy_check_outcome(_policy_check), do: %{status: "unknown"}
+
+  defp build_git_side_effect_audit_record(
+         action,
+         action_context,
+         status,
+         command_intent,
+         policy_check_outcomes
+       )
+       when is_binary(action) and is_map(action_context) and is_binary(status) do
+    %{
+      action: action,
+      command_intent: command_intent || default_command_intent(action, action_context),
+      result_code: shipping_action_result_code(status),
+      status: status,
+      actor_id: action_context |> map_get(:actor_id, "actor_id") |> normalize_optional_string(),
+      actor_email: action_context |> map_get(:actor_email, "actor_email") |> normalize_optional_string(),
+      workflow_name: action_context |> map_get(:workflow_name, "workflow_name") |> normalize_optional_string(),
+      run_id: action_context |> map_get(:run_id, "run_id") |> normalize_optional_string(),
+      branch_name: action_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+      timestamp: timestamp_now()
+    }
+    |> maybe_put_optional(:policy_check_outcomes, normalize_map(policy_check_outcomes))
+  end
+
+  defp build_git_side_effect_audit_record(
+         _action,
+         _action_context,
+         _status,
+         _command_intent,
+         _policy_check_outcomes
+       ),
+       do: %{}
+
+  defp default_command_intent(action, action_context) do
+    branch_name = action_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string()
+
+    case action do
+      "setup_branch" ->
+        "git checkout -b #{branch_name || "<run-branch>"}"
+
+      "commit" ->
+        "git commit"
+
+      "push" ->
+        "git push origin #{branch_name || "<run-branch>"}"
+
+      "create_pr" ->
+        "gh pr create --head #{branch_name || "<run-branch>"}"
+
+      _other ->
+        "git action"
+    end
+  end
+
+  defp setup_branch_command_intent(branch_context, branch_setup)
+       when is_map(branch_context) and is_map(branch_setup) do
+    command_intent =
+      branch_setup
+      |> map_get(:command_intent, "command_intent")
+      |> normalize_optional_string()
+
+    command_intent || default_command_intent("setup_branch", git_side_effect_action_context(%{}, branch_context))
+  end
+
+  defp setup_branch_command_intent(_branch_context, _branch_setup), do: "git checkout -b <run-branch>"
+
+  defp commit_command_intent(commit_message_contract_check) when is_map(commit_message_contract_check) do
+    summary =
+      commit_message_contract_check
+      |> map_get(:summary, "summary")
+      |> normalize_optional_string()
+
+    case summary do
+      nil -> "git commit"
+      resolved_summary -> ~s(git commit -m "#{resolved_summary}")
+    end
+  end
+
+  defp commit_command_intent(_commit_message_contract_check), do: "git commit"
+
+  defp push_command_intent(branch_context, push_execution)
+       when is_map(branch_context) and is_map(push_execution) do
+    push_artifact = push_execution |> map_get(:push, "push") |> normalize_map()
+
+    command_intent =
+      push_artifact
+      |> map_get(:command_intent, "command_intent")
+      |> normalize_optional_string()
+
+    command_intent ||
+      default_command_intent("push", git_side_effect_action_context(%{}, branch_context))
+  end
+
+  defp push_command_intent(_branch_context, _push_execution), do: "git push origin <run-branch>"
+
+  defp create_pr_command_intent(branch_context) when is_map(branch_context) do
+    default_command_intent("create_pr", git_side_effect_action_context(%{}, branch_context))
+  end
+
+  defp create_pr_command_intent(_branch_context), do: "gh pr create --head <run-branch>"
+
+  defp setup_branch_audit_status(branch_setup) when is_map(branch_setup) do
+    status =
+      branch_setup
+      |> map_get(:status, "status", "created")
+      |> normalize_optional_string()
+
+    case status do
+      "created" -> "succeeded"
+      "created_after_collision_retry" -> "succeeded"
+      _other -> "succeeded"
+    end
+  end
+
+  defp setup_branch_audit_status(_branch_setup), do: "succeeded"
+
+  defp commit_audit_status(dry_run_context) when is_map(dry_run_context) do
+    if dry_run_enabled?(dry_run_context), do: "suppressed_dry_run", else: "ready_for_execution"
+  end
+
+  defp commit_audit_status(_dry_run_context), do: "ready_for_execution"
+
+  defp push_audit_status(push_execution, dry_run_context)
+       when is_map(push_execution) and is_map(dry_run_context) do
+    if dry_run_enabled?(dry_run_context) do
+      "suppressed_dry_run"
+    else
+      push_status =
+        push_execution
+        |> map_get(:push, "push", %{})
+        |> map_get(:status, "status", "not_requested")
+        |> normalize_optional_string()
+        |> case do
+          nil -> "not_requested"
+          value -> String.downcase(value)
+        end
+
+      case push_status do
+        "pushed" -> "succeeded"
+        "pushed_after_auth_refresh_retry" -> "succeeded"
+        "suppressed_dry_run" -> "suppressed_dry_run"
+        "not_requested" -> "not_requested"
+        _other -> "unknown"
+      end
+    end
+  end
+
+  defp push_audit_status(_push_execution, _dry_run_context), do: "unknown"
+
+  defp create_pr_audit_status(push_execution, dry_run_context)
+       when is_map(push_execution) and is_map(dry_run_context) do
+    if dry_run_enabled?(dry_run_context) do
+      "suppressed_dry_run"
+    else
+      next_stage =
+        push_execution
+        |> map_get(:shipping_flow, "shipping_flow", %{})
+        |> map_get(:next_stage, "next_stage")
+        |> normalize_optional_string()
+
+      case next_stage do
+        "create_pr" -> "ready_for_execution"
+        "commit_changes" -> "pending_commit_and_push"
+        _other -> "pending"
+      end
+    end
+  end
+
+  defp create_pr_audit_status(_push_execution, _dry_run_context), do: "pending"
+
+  defp shipping_action_result_code(status) when is_binary(status) do
+    case String.downcase(status) do
+      "failed" -> 1
+      "error" -> 1
+      _other -> 0
+    end
+  end
+
+  defp shipping_action_result_code(_status), do: 1
+
+  defp persist_git_side_effect_audits(git_side_effect_audits, opts)
+       when is_list(git_side_effect_audits) and is_list(opts) do
+    persister =
+      Keyword.get(
+        opts,
+        :git_side_effect_audit_persister,
+        &__MODULE__.default_git_side_effect_audit_persister/1
+      )
+
+    safe_invoke_git_side_effect_audit_persister(persister, git_side_effect_audits)
+  end
+
+  defp persist_git_side_effect_audits(git_side_effect_audits, _opts)
+       when is_list(git_side_effect_audits) do
+    safe_invoke_git_side_effect_audit_persister(
+      &__MODULE__.default_git_side_effect_audit_persister/1,
+      git_side_effect_audits
+    )
+  end
+
+  defp persist_git_side_effect_audits(_git_side_effect_audits, _opts),
+    do: {:error, normalize_audit_persistence_failure(:invalid_audit_records)}
+
+  defp safe_invoke_git_side_effect_audit_persister(persister, git_side_effect_audits)
+       when is_function(persister, 1) and is_list(git_side_effect_audits) do
+    try do
+      normalize_git_side_effect_audit_persist_result(
+        persister.(git_side_effect_audits),
+        git_side_effect_audits
+      )
+    rescue
+      exception ->
+        {:error,
+         normalize_audit_persistence_failure(%{
+           reason_type: "audit_persister_exception",
+           detail: "Git side-effect audit persister crashed (#{Exception.message(exception)}).",
+           reason: exception
+         })}
+    catch
+      kind, reason ->
+        {:error,
+         normalize_audit_persistence_failure(%{
+           reason_type: "audit_persister_throw",
+           detail: "Git side-effect audit persister threw #{inspect({kind, reason})}.",
+           reason: {kind, reason}
+         })}
+    end
+  end
+
+  defp safe_invoke_git_side_effect_audit_persister(_persister, _git_side_effect_audits),
+    do: {:error, normalize_audit_persistence_failure(:invalid_audit_persister)}
+
+  defp normalize_git_side_effect_audit_persist_result(:ok, git_side_effect_audits),
+    do: {:ok, git_side_effect_audits}
+
+  defp normalize_git_side_effect_audit_persist_result(
+         {:ok, persisted_git_side_effect_audits},
+         _git_side_effect_audits
+       )
+       when is_list(persisted_git_side_effect_audits),
+       do: {:ok, persisted_git_side_effect_audits}
+
+  defp normalize_git_side_effect_audit_persist_result({:ok, _result}, git_side_effect_audits),
+    do: {:ok, git_side_effect_audits}
+
+  defp normalize_git_side_effect_audit_persist_result({:error, reason}, _git_side_effect_audits),
+    do: {:error, normalize_audit_persistence_failure(reason)}
+
+  defp normalize_git_side_effect_audit_persist_result(result, _git_side_effect_audits),
+    do: {:error, normalize_audit_persistence_failure({:invalid_audit_persister_result, result})}
+
+  defp normalize_audit_persistence_failure(%{} = audit_failure) do
+    %{
+      reason_type:
+        audit_failure
+        |> map_get(
+          :reason_type,
+          "reason_type",
+          map_get(audit_failure, :error_type, "error_type", "audit_persistence_failed")
+        )
+        |> normalize_reason_type(),
+      detail:
+        audit_failure
+        |> map_get(
+          :detail,
+          "detail",
+          "Git side-effect audit persistence failed."
+        ),
+      reason: map_get(audit_failure, :reason, "reason", map_get(audit_failure, :error, "error", audit_failure))
+    }
+  end
+
+  defp normalize_audit_persistence_failure(audit_failure) do
+    %{
+      reason_type: "audit_persistence_failed",
+      detail: "Git side-effect audit persistence failed.",
+      reason: audit_failure
+    }
+  end
+
+  @doc false
+  @spec default_git_side_effect_audit_persister([map()]) :: {:ok, [map()]} | {:error, atom()}
+  def default_git_side_effect_audit_persister(git_side_effect_audits)
+      when is_list(git_side_effect_audits) do
+    {:ok, git_side_effect_audits}
+  end
+
+  def default_git_side_effect_audit_persister(_git_side_effect_audits),
+    do: {:error, :invalid_audit_records}
+
+  defp git_side_effect_audit_lineage(git_side_effect_audits) when is_list(git_side_effect_audits) do
+    run_id =
+      git_side_effect_audits
+      |> List.first()
+      |> map_get(:run_id, "run_id")
+      |> normalize_optional_string()
+
+    last_record = List.last(git_side_effect_audits)
+
+    %{
+      run_id: run_id,
+      action_count: length(git_side_effect_audits),
+      actions: Enum.map(git_side_effect_audits, &map_get(&1, :action, "action")),
+      latest_timestamp: last_record |> map_get(:timestamp, "timestamp") |> normalize_optional_string()
+    }
+  end
+
+  defp git_side_effect_audit_lineage(_git_side_effect_audits) do
+    %{
+      run_id: nil,
+      action_count: 0,
+      actions: [],
+      latest_timestamp: nil
+    }
+  end
 
   defp push_requested?(args, opts) when is_map(args) and is_list(opts) do
     explicit_push_opt_in? =
@@ -5664,6 +6160,90 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPR do
       timestamp: timestamp_now()
     }
   end
+
+  defp audit_persistence_error(
+         branch_context,
+         policy_checks,
+         git_side_effect_audits,
+         push_execution,
+         audit_failure
+       )
+       when is_map(branch_context) and is_map(policy_checks) and is_list(git_side_effect_audits) and
+              is_map(push_execution) do
+    blocked_stage =
+      push_execution
+      |> map_get(:shipping_flow, "shipping_flow", %{})
+      |> map_get(:next_stage, "next_stage")
+      |> normalize_optional_string()
+
+    {halted_before_commit, halted_before_push, halted_before_pr, blocked_actions} =
+      audit_blocking_context(blocked_stage)
+
+    %{
+      error_type: @audit_persistence_error_type,
+      operation: @audit_persistence_operation,
+      reason_type:
+        audit_failure
+        |> map_get(:reason_type, "reason_type", "audit_persistence_failed")
+        |> normalize_reason_type(),
+      detail:
+        format_failure_detail(
+          "Git side-effect audit persistence failed and shipping action was rejected.",
+          failure_reason_message(audit_failure)
+        ),
+      remediation: @audit_persistence_remediation,
+      blocked_stage: blocked_stage || "commit_changes",
+      blocked_actions: blocked_actions,
+      halted_before_commit: halted_before_commit,
+      halted_before_push: halted_before_push,
+      halted_before_pr: halted_before_pr,
+      branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+      branch_derivation: branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map(),
+      policy_checks: policy_checks,
+      git_side_effect_audits: git_side_effect_audits,
+      shipping_flow: push_execution |> map_get(:shipping_flow, "shipping_flow", %{}) |> normalize_map(),
+      run_logs: push_execution |> map_get(:run_logs, "run_logs", []),
+      timestamp: timestamp_now()
+    }
+  end
+
+  defp audit_persistence_error(
+         branch_context,
+         policy_checks,
+         git_side_effect_audits,
+         _push_execution,
+         audit_failure
+       ) do
+    %{
+      error_type: @audit_persistence_error_type,
+      operation: @audit_persistence_operation,
+      reason_type:
+        audit_failure
+        |> map_get(:reason_type, "reason_type", "audit_persistence_failed")
+        |> normalize_reason_type(),
+      detail:
+        format_failure_detail(
+          "Git side-effect audit persistence failed and shipping action was rejected.",
+          failure_reason_message(audit_failure)
+        ),
+      remediation: @audit_persistence_remediation,
+      blocked_stage: "commit_changes",
+      blocked_actions: @blocked_shipping_actions,
+      halted_before_commit: true,
+      halted_before_push: true,
+      halted_before_pr: true,
+      branch_name: branch_context |> map_get(:branch_name, "branch_name") |> normalize_optional_string(),
+      branch_derivation: branch_context |> map_get(:branch_derivation, "branch_derivation") |> normalize_map(),
+      policy_checks: normalize_map(policy_checks),
+      git_side_effect_audits: if(is_list(git_side_effect_audits), do: git_side_effect_audits, else: []),
+      shipping_flow: %{},
+      run_logs: [],
+      timestamp: timestamp_now()
+    }
+  end
+
+  defp audit_blocking_context("create_pr"), do: {false, false, true, ["create_pr"]}
+  defp audit_blocking_context(_blocked_stage), do: {true, true, true, @blocked_shipping_actions}
 
   defp timestamp_now do
     DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()

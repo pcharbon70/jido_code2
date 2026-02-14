@@ -1059,6 +1059,123 @@ defmodule JidoCode.WorkflowRuntime.StepHandlers.CommitAndPRTest do
     assert Agent.get(push_attempt_calls, & &1) == 0
   end
 
+  test "git side-effect audits persist command metadata and attach policy outcomes for commit push and PR actions" do
+    persisted_audits = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+
+    audit_persister = fn git_side_effect_audits ->
+      Agent.update(persisted_audits, fn _records -> git_side_effect_audits end)
+      {:ok, git_side_effect_audits}
+    end
+
+    {:ok, result} =
+      CommitAndPR.execute(
+        nil,
+        %{
+          workflow_name: "Implement Task",
+          run_id: "run-audit-01",
+          workspace_clean: true,
+          execute_push: true,
+          actor: %{id: "owner-42", email: "owner@example.com"}
+        },
+        branch_setup_runner: fn branch_context ->
+          {:ok,
+           %{
+             status: "created",
+             branch_name: branch_context.branch_name,
+             command_intent: "git checkout -b #{branch_context.branch_name}"
+           }}
+        end,
+        push_runner: fn _args, branch_context ->
+          {:ok,
+           %{
+             status: "pushed",
+             command_intent: "git push origin #{branch_context.branch_name}",
+             detail: "Run branch push completed."
+           }}
+        end,
+        git_side_effect_audit_persister: audit_persister
+      )
+
+    assert result.run_artifacts.git_side_effect_audits == result.git_side_effect_audits
+    assert result.git_side_effect_audit_lineage.action_count == 4
+    assert result.git_side_effect_audit_lineage.run_id == "run-audit-01"
+
+    assert Agent.get(persisted_audits, & &1) == result.git_side_effect_audits
+
+    assert Enum.map(result.git_side_effect_audits, & &1.action) == [
+             "setup_branch",
+             "commit",
+             "push",
+             "create_pr"
+           ]
+
+    for audit_record <- result.git_side_effect_audits do
+      assert is_binary(audit_record.command_intent)
+      assert is_integer(audit_record.result_code)
+      assert audit_record.actor_id == "owner-42"
+      assert audit_record.actor_email == "owner@example.com"
+      assert audit_record.workflow_name == "Implement Task"
+      assert audit_record.run_id == "run-audit-01"
+      assert {:ok, _timestamp, 0} = DateTime.from_iso8601(audit_record.timestamp)
+    end
+
+    for action <- ["commit", "push", "create_pr"] do
+      action_audit = Enum.find(result.git_side_effect_audits, fn audit_record -> audit_record.action == action end)
+      refute is_nil(action_audit)
+
+      assert %{
+               workspace_cleanliness: %{status: "passed"},
+               secret_scan: %{status: "passed"},
+               diff_size_threshold: %{status: "passed"},
+               binary_file_policy: %{status: "passed"},
+               commit_message_contract: %{status: "passed"}
+             } = action_audit.policy_check_outcomes
+    end
+  end
+
+  test "shipping fails closed when git side-effect audit persistence fails" do
+    push_attempts = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+
+    push_runner = fn _args, _branch_context ->
+      Agent.update(push_attempts, &(&1 + 1))
+
+      {:ok,
+       %{
+         status: "pushed",
+         detail: "Run branch push completed."
+       }}
+    end
+
+    assert {:error, typed_error} =
+             CommitAndPR.execute(
+               nil,
+               %{
+                 workflow_name: "Implement Task",
+                 run_id: "run-audit-fail-01",
+                 workspace_clean: true,
+                 execute_push: true
+               },
+               branch_setup_runner: fn _branch_context -> :ok end,
+               push_runner: push_runner,
+               git_side_effect_audit_persister: fn _git_side_effect_audits ->
+                 {:error, :forced_audit_failure}
+               end
+             )
+
+    assert typed_error.error_type == "workflow_commit_and_pr_audit_persistence_failed"
+    assert typed_error.operation == "persist_git_side_effect_audit_metadata"
+    assert typed_error.reason_type == "audit_persistence_failed"
+    assert typed_error.blocked_stage == "create_pr"
+    assert typed_error.blocked_actions == ["create_pr"]
+    assert typed_error.halted_before_pr == true
+    assert length(typed_error.git_side_effect_audits) == 4
+    assert typed_error.policy_checks.workspace_cleanliness.status == "passed"
+    assert typed_error.policy_checks.secret_scan.status == "passed"
+    assert typed_error.policy_checks.diff_size_threshold.status == "passed"
+    assert typed_error.policy_checks.binary_file_policy.status == "passed"
+    assert Agent.get(push_attempts, & &1) == 1
+  end
+
   test "push auth failure refreshes GitHub auth and retries once without duplicating commit side effects" do
     commit_probe_calls = start_supervised!({Agent, fn -> 0 end})
     push_attempt_calls = start_supervised!({Agent, fn -> [] end}, id: make_ref())
