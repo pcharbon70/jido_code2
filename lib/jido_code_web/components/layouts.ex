@@ -121,7 +121,7 @@ defmodule JidoCodeWeb.Layouts do
     # Dynamically render LiveToast component
     ~H"""
     <div
-      id="toast-group"
+      id="toast-group-container"
       class="fixed z-50 max-h-screen w-full p-4 md:max-w-[420px] pointer-events-none grid origin-center top-0 right-0 items-start flex-col sm:bottom-auto"
     >
       <.live_component
@@ -134,7 +134,7 @@ defmodule JidoCodeWeb.Layouts do
         kinds={[:info, :error]}
         toast_class_fn={&JidoCodeWeb.Layouts.toast_class_fn/1}
       />
-      <div :if={!@connected} id="toast-group">
+      <div :if={!@connected} id="toast-group-disconnected">
         <div
           :for={{kind, msg} <- @flash}
           class={[
