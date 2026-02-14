@@ -2,6 +2,11 @@ defmodule JidoCodeWeb.AuthController do
   use JidoCodeWeb, :controller
   use AshAuthentication.Phoenix.Controller
 
+  require Logger
+
+  @sign_out_success_message "You are now signed out"
+  @sign_out_retry_message "Sign-out could not complete. Please retry; your current session is still active."
+
   def success(conn, activity, user, _token) do
     return_to = get_session(conn, :return_to) || ~p"/"
 
@@ -47,9 +52,40 @@ defmodule JidoCodeWeb.AuthController do
   def sign_out(conn, _params) do
     return_to = get_session(conn, :return_to) || ~p"/"
 
-    conn
-    |> clear_session(:jido_code)
-    |> put_flash(:info, "You are now signed out")
-    |> redirect(to: return_to)
+    case invalidate_session(conn) do
+      {:ok, cleared_conn} ->
+        cleared_conn
+        |> put_flash(:info, @sign_out_success_message)
+        |> redirect(to: return_to)
+
+      {:error, reason} ->
+        Logger.warning("auth_sign_out_failed reason=#{inspect(reason)}")
+
+        conn
+        |> put_flash(:error, @sign_out_retry_message)
+        |> redirect(to: return_to)
+    end
   end
+
+  defp invalidate_session(conn) do
+    invalidator =
+      Application.get_env(
+        :jido_code,
+        :sign_out_invalidator,
+        &default_sign_out_invalidator/2
+      )
+
+    try do
+      case invalidator.(conn, :jido_code) do
+        %Plug.Conn{} = cleared_conn -> {:ok, cleared_conn}
+        {:ok, %Plug.Conn{} = cleared_conn} -> {:ok, cleared_conn}
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:unexpected_sign_out_invalidator_result, other}}
+      end
+    rescue
+      error -> {:error, {:exception, error}}
+    end
+  end
+
+  defp default_sign_out_invalidator(conn, otp_app), do: clear_session(conn, otp_app)
 end

@@ -6983,3 +6983,78 @@ Excluding tags: [:sprite_integration]
 .......
 Finished in 3.2 seconds (1.0s async, 2.1s sync)
 70 tests, 0 failures, 2 skipped (4 excluded)
+1) changed files
+- `lib/jido_code_web/controllers/auth_controller.ex`
+- `test/jido_code_web/live/auth_sign_out_live_test.exs`
+
+2) tests/commands executed
+- `elixir /tmp/run_mix_no_socket.exs format lib/jido_code_web/controllers/auth_controller.ex test/jido_code_web/live/auth_sign_out_live_test.exs` (pass)
+- `elixir /tmp/run_mix_no_socket.exs format test/jido_code_web/live/auth_sign_out_live_test.exs` (pass)
+- `MIX_OS_CONCURRENCY_LOCK=0 elixir /tmp/run_mix_no_socket.exs compile --warnings-as-errors` (pass)
+- `MIX_OS_CONCURRENCY_LOCK=0 elixir /tmp/run_mix_no_socket.exs test test/jido_code_web/live/auth_sign_out_live_test.exs` (fails before tests due DB connect blocked: `tcp connect (localhost:5432): not owner - :eperm`)
+- `MIX_OS_CONCURRENCY_LOCK=0 elixir /tmp/run_mix_no_socket.exs precommit` (fails for same DB blocker during `ash.setup`)
+
+3) acceptance criteria coverage
+- AC1: Sign-out clears session credentials/owner browser context.
+  - Implemented fail-safe invalidation in `AuthController.sign_out/2` via `clear_session/2` success path (`lib/jido_code_web/controllers/auth_controller.ex:52`).
+  - Verified in test by asserting `"user_token"` is removed on successful sign-out (`test/jido_code_web/live/auth_sign_out_live_test.exs:20`).
+- AC2: Protected routes redirect to auth after sign-out.
+  - Verified by asserting `/settings` redirects to `/sign-in` after successful sign-out (`test/jido_code_web/live/auth_sign_out_live_test.exs:22`).
+- AC3: On invalidation failure, explicit retry guidance and no partial sign-out state.
+  - Added failure branch with explicit retry flash message (`lib/jido_code_web/controllers/auth_controller.ex:61`).
+  - Added all-or-nothing browser-state behavior: if invalidation errors, original `conn` is used (session remains unchanged) (`lib/jido_code_web/controllers/auth_controller.ex:70`).
+  - Verified failure behavior using injected invalidator failure:
+    - retry guidance flash is shown (`test/jido_code_web/live/auth_sign_out_live_test.exs:45`)
+    - session token remains unchanged (`test/jido_code_web/live/auth_sign_out_live_test.exs:48`)
+    - protected route remains accessible (no partial sign-out) (`test/jido_code_web/live/auth_sign_out_live_test.exs:50`)
+
+4) blockers/assumptions
+- Blocker: sandbox prevents TCP sockets and shared memory, so DB-backed test setup cannot run (`localhost:5432` connect denied with `:eperm`; local Postgres startup also blocked by shared memory permissions).
+- Because of that environment constraint, `mix precommit` cannot be completed to passing state here, despite compile and formatting passing.
+- Assumption: `Application.get_env(:jido_code, :sign_out_invalidator)` is test-only override; production behavior defaults to `clear_session/2`.
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+Running ExUnit with seed: 766500, max_cases: 20
+Excluding tags: [:sprite_integration]
+
+.............    warning: Phoenix.ConnTest.get_flash/2 is deprecated. get_flash/2 is deprecated. Use Phoenix.Flash.get/2 instead
+    │
+ 19 │     assert get_flash(sign_out_response, :info) == "You are now signed out"
+    │            ~
+    │
+    └─ test/jido_code_web/live/auth_sign_out_live_test.exs:19:12: JidoCodeWeb.AuthSignOutLiveTest."test sign out clears browser session credentials and redirects protected routes to sign-in"/1
+    └─ test/jido_code_web/live/auth_sign_out_live_test.exs:45:12: JidoCodeWeb.AuthSignOutLiveTest."test failed session invalidation provides retry guidance and keeps session unchanged"/1
+
+.......20:18:49.976 request_id=GJP7bl3zBUXXqzAAAARG [warning] onboarding_redirect route=/ reason=onboarding_incomplete step=1 diagnostic="Setup is incomplete. Resume onboarding to continue."
+.20:18:50.014 request_id=GJP7bmMXD4VACUkAABTh [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.SettingsLive reason=missing_or_expired_session
+.20:18:50.033 request_id=GJP7bmQX2fdD5q4AAACi [warning] auth_sign_out_failed reason=:forced_invalidation_failure
+20:18:50.037 request_id=GJP7bmRGh6xD5q4AAADC [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:18:50.191 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+....20:18:50.426 [warning] Quality checks failed for test-fail-5602 (attempt 1/3), retrying...
+20:18:50.431 [warning] Quality checks failed for test-fail-5602 (attempt 2/3), retrying...
+20:18:50.435 [error] Quality checks failed for test-fail-5602 after 3 attempts, giving up
+20:18:50.436 [warning] Pull request failed for test-fail-5602 after 3 attempts
+...20:18:50.580 [warning] Quality checks failed for test-retry-138 (attempt 1/3), retrying...
+20:18:50.585 [warning] Quality checks failed for test-retry-138 (attempt 2/3), retrying...
+...20:18:50.739 request_id=GJP7bo5IMnmsijUAAAMi [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+...20:18:50.860 request_id=GJP7bpUBch_-JW0AAByh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:18:50.867 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:18:50.871 request_id=GJP7bpYFY4j-JW0AABzh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:18:50.876 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+..20:18:50.910 request_id=GJP7bpiAULY3s64AAB0h [warning] auth_boundary_check outcome=deny live_view=JidoCodeWeb.DashboardLive reason=missing_or_expired_session
+..20:18:50.982 request_id=GJP7bpxI2I8hca0AAAWH [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:18:50.986 request_id=GJP7bpzd-NQhca0AACDB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:18:50.989 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.......**20:18:51.348 request_id=GJP7brJvEbWFNgsAACNh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:18:51.379 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.20:18:51.419 request_id=GJP7braHNMkfH2AAAAUF [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+20:18:51.430 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.SettingsLive reason=owner_session_present
+.......20:18:51.679 request_id=GJP7bsXjKlQaeIEAAAYl [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:18:51.686 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+....20:18:51.798 request_id=GJP7bs0_aIpq108AACiB [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:18:51.802 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+......20:18:51.933 request_id=GJP7btVYcARF0L8AACsh [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+20:18:51.950 [warning] auth_boundary_check outcome=allow live_view=JidoCodeWeb.DashboardLive reason=owner_session_present
+......
+Finished in 3.1 seconds (1.0s async, 2.1s sync)
+72 tests, 0 failures, 2 skipped (4 excluded)
