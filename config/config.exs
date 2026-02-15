@@ -95,7 +95,7 @@ config :jido_code,
     JidoCode.Security
   ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true],
-  mailer: [from_name: "Agent Jido"],
+  mailer: [from_name: "Jido Code"],
   runtime_mode: config_env()
 
 # Configure the endpoint

@@ -45,7 +45,7 @@ defmodule JidoCodeWeb.WelcomeLiveTest do
   test "renders welcome page with friendly messaging", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/welcome")
 
-    assert html =~ "Welcome to Agent Jido"
+    assert html =~ "Welcome to Jido Code"
     assert html =~ "only take a minute"
     assert has_element?(view, "#system-check")
   end

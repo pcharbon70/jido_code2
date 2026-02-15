@@ -132,7 +132,6 @@ defmodule JidoCode.MixProject do
       {:lazy_html, ">= 0.1.0"},
       {:usage_rules, "~> 1.0", only: [:dev]},
       {:tidewave, "~> 0.5", only: [:dev]},
-      {:mishka_chelekom, "~> 0.0", only: [:dev]},
       # TODO: re-enable once startup perf is fixed (v0.6.0 adds ~28s to boot)
       # {:live_debugger, "~> 0.5", only: [:dev]},
 

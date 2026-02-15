@@ -41,7 +41,12 @@ defmodule JidoCodeWeb.WelcomeLive do
           |> assign(:prereq_report, nil)
           |> assign(:owner_mode, owner_status.mode)
           |> assign(:owner_email, owner_status.owner_email)
-          |> assign(:owner_form, to_form(%{"email" => owner_status.owner_email || "", "password" => "", "password_confirmation" => ""}, as: :owner))
+          |> assign(
+            :owner_form,
+            to_form(%{"email" => owner_status.owner_email || "", "password" => "", "password_confirmation" => ""},
+              as: :owner
+            )
+          )
           |> assign(:save_error, owner_status.error)
 
         if connected?(socket) do
@@ -106,7 +111,7 @@ defmodule JidoCodeWeb.WelcomeLive do
                     </span>
                     <div>
                       <span class="font-medium">{check.name}</span>
-                      <span class="text-base-content/60"> — {check.detail}</span>
+                      <span class="text-base-content/60"> —  {check.detail}</span>
                       <p :if={check.status != :pass} class="text-warning text-xs">
                         {check.remediation}
                       </p>
@@ -126,13 +131,14 @@ defmodule JidoCodeWeb.WelcomeLive do
           <%!-- Registration / Sign-in form --%>
           <div id="owner-form-section" class="space-y-4">
             <div :if={@prereq_status != :pass} class="text-center text-sm text-base-content/50 py-2">
-              <.icon name="hero-lock-closed-mini" class="size-4 inline" />
-              Complete system check first
+              <.icon name="hero-lock-closed-mini" class="size-4 inline" /> Complete system check first
             </div>
 
             <div :if={@prereq_status == :pass} class="space-y-4">
               <h2 class="text-lg font-semibold text-center">
-                {if @owner_mode == :create, do: "Create your admin account", else: "Welcome back! Sign in to continue setup."}
+                {if @owner_mode == :create,
+                  do: "Create your admin account",
+                  else: "Welcome back! Sign in to continue setup."}
               </h2>
 
               <div :if={@save_error} id="welcome-save-error" class="alert alert-error">
@@ -239,14 +245,17 @@ defmodule JidoCodeWeb.WelcomeLive do
            |> assign(:owner_mode, owner_status.mode)
            |> assign(:owner_email, owner_status.owner_email)
            |> assign(:save_error, diagnostic)
-           |> assign(:owner_form, to_form(
-             %{
-               "email" => owner_params["email"] || "",
-               "password" => "",
-               "password_confirmation" => ""
-             },
-             as: :owner
-           ))}
+           |> assign(
+             :owner_form,
+             to_form(
+               %{
+                 "email" => owner_params["email"] || "",
+                 "password" => "",
+                 "password_confirmation" => ""
+               },
+               as: :owner
+             )
+           )}
       end
     end
   end

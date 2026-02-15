@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <.live_title default="AgentJido" suffix=" · Phoenix Framework">
+    <.live_title default="Jido Code" suffix=" · Phoenix Framework">
       {assigns[:page_title]}
     </.live_title>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
@@ -14,25 +14,55 @@
     </script>
     <script>
       (() => {
-        const setTheme = (theme) => {
-          if (theme === "system") {
+        const root = document.documentElement;
+        const themeModeQuery = window.matchMedia("(prefers-color-scheme: light)");
+        const getResolvedTheme = (mode) => (mode === "system" ? (themeModeQuery.matches ? "light" : "dark") : mode);
+
+        const applyTheme = (mode) => {
+          const resolvedTheme = getResolvedTheme(mode);
+
+          root.setAttribute("data-theme-mode", mode);
+          root.setAttribute("data-theme", resolvedTheme);
+          root.classList.toggle("light", resolvedTheme === "light");
+          root.classList.toggle("dark", resolvedTheme === "dark");
+
+          if (mode === "system") {
             localStorage.removeItem("phx:theme");
-            document.documentElement.removeAttribute("data-theme");
           } else {
-            localStorage.setItem("phx:theme", theme);
-            document.documentElement.setAttribute("data-theme", theme);
+            localStorage.setItem("phx:theme", mode);
           }
         };
-        if (!document.documentElement.hasAttribute("data-theme")) {
-          setTheme(localStorage.getItem("phx:theme") || "system");
+
+        let currentMode = localStorage.getItem("phx:theme") || "system";
+        applyTheme(currentMode);
+
+        const handleSystemChange = () => {
+          if ((root.getAttribute("data-theme-mode") || "system") === "system") {
+            applyTheme("system");
+          }
+        };
+
+        if (typeof themeModeQuery.addEventListener === "function") {
+          themeModeQuery.addEventListener("change", handleSystemChange);
+        } else if (typeof themeModeQuery.addListener === "function") {
+          themeModeQuery.addListener(handleSystemChange);
         }
-        window.addEventListener("storage", (e) => e.key === "phx:theme" && setTheme(e.newValue || "system"));
-        
-        window.addEventListener("phx:set-theme", (e) => setTheme(e.target.dataset.phxTheme));
+
+        window.addEventListener("storage", (e) => {
+          if (e.key === "phx:theme") {
+            currentMode = e.newValue || "system";
+            applyTheme(currentMode);
+          }
+        });
+
+        window.addEventListener("phx:set-theme", (e) => {
+          currentMode = e.target.dataset.phxTheme || "system";
+          applyTheme(currentMode);
+        });
       })();
     </script>
   </head>
-  <body>
+  <body class="antialiased font-mono">
     {@inner_content}
   </body>
 </html>

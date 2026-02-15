@@ -36,12 +36,13 @@ defmodule JidoCodeWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <.link navigate={~p"/dashboard"} class="text-xl font-bold hover:opacity-80">Jido Code</.link>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-row px-1 space-x-2 items-center">
+    <header class="sticky top-0 z-40 border-b border-base-300/70 bg-base-100/90 backdrop-blur">
+      <div class="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        <.link navigate={~p"/dashboard"} class="text-sm font-bold tracking-[0.12em] uppercase hover:text-primary">
+          Jido Code
+        </.link>
+
+        <ul class="flex flex-row items-center gap-1 sm:gap-2">
           <li>
             <.link navigate={~p"/dashboard"} class="btn btn-ghost btn-sm">Dashboard</.link>
           </li>
@@ -61,7 +62,7 @@ defmodule JidoCodeWeb.Layouts do
       </div>
     </header>
 
-    <main class="px-4 py-8 sm:px-6 lg:px-8">
+    <main class="px-4 py-8 sm:px-6 lg:px-8 bg-background">
       <div class="mx-auto max-w-6xl space-y-4">
         {render_slot(@inner_block)}
       </div>
@@ -95,9 +96,9 @@ defmodule JidoCodeWeb.Layouts do
 
   def onboarding(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gradient-to-br from-base-200 to-base-300 flex flex-col items-center justify-center px-4">
+    <div class="min-h-screen bg-gradient-to-br from-base-200 via-base-100 to-base-200 flex flex-col items-center justify-center px-4">
       <div class="mb-8 text-center">
-        <h1 class="text-2xl font-bold opacity-80">Jido Code</h1>
+        <h1 class="text-2xl font-bold tracking-[0.12em] uppercase opacity-80">Jido Code</h1>
       </div>
 
       <div class="w-full max-w-lg">
@@ -121,31 +122,31 @@ defmodule JidoCodeWeb.Layouts do
   """
   def theme_toggle(assigns) do
     ~H"""
-    <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
-      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
+    <div class="relative flex items-center rounded-md border border-base-300 bg-base-200/70 p-1">
+      <div class="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-1/3 rounded-sm border border-base-300 bg-base-100 transition-[left] duration-300 [[data-theme-mode=light]_&]:left-1/3 [[data-theme-mode=dark]_&]:left-2/3" />
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="relative z-10 flex w-9 items-center justify-center rounded-sm p-1 text-base-content/70 hover:text-base-content"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
       >
-        <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="hero-computer-desktop-micro" class="size-4" />
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="relative z-10 flex w-9 items-center justify-center rounded-sm p-1 text-base-content/70 hover:text-base-content"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
       >
-        <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="hero-sun-micro" class="size-4" />
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="relative z-10 flex w-9 items-center justify-center rounded-sm p-1 text-base-content/70 hover:text-base-content"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
       >
-        <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="hero-moon-micro" class="size-4" />
       </button>
     </div>
     """
@@ -182,7 +183,7 @@ defmodule JidoCodeWeb.Layouts do
           class={[
             "group/toast z-100 pointer-events-auto relative w-full items-center justify-between origin-center overflow-hidden rounded-lg p-4 shadow-lg border col-start-1 col-end-1 row-start-1 row-end-2 flex",
             kind == :info && "bg-white text-black",
-            kind == :error && "bg-red-600 text-white border-red-700"
+            kind == :error && "bg-error text-error-content border-error"
           ]}
         >
           <p class="text-sm">{msg}</p>
@@ -205,8 +206,7 @@ defmodule JidoCodeWeb.Layouts do
       if(assigns[:rest][:hidden] == true, do: "hidden", else: "flex"),
       # override styles per severity
       assigns[:kind] == :info && "bg-white text-black",
-      assigns[:kind] == :error &&
-        "bg-danger-light text-white border-danger-light dark:bg-danger-dark dark:border-danger-dark dark:text-black"
+      assigns[:kind] == :error && "bg-error text-error-content border-error"
     ]
   end
 end

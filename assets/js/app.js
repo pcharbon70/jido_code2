@@ -21,7 +21,6 @@ import "phoenix_html";
 import { Socket } from "phoenix";
 import { LiveSocket } from "phoenix_live_view";
 import topbar from "../vendor/topbar";
-import MishkaComponents from "../vendor/mishka_components.js";
 import { createLiveToastHook } from "../../deps/live_toast/assets/js/live_toast";
 const csrfToken = document
   .querySelector("meta[name='csrf-token']")
@@ -32,7 +31,6 @@ const liveSocket = new LiveSocket("/live", Socket, {
     _csrf_token: csrfToken,
   },
   hooks: {
-    ...MishkaComponents,
     LiveToast: createLiveToastHook(),
   },
 });

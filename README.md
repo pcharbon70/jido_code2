@@ -66,7 +66,7 @@ A separate demo domain showcasing `Jido.AI.ReActAgent`:
 - Phoenix 1.8 + LiveView with AshAuthentication (password, magic link, API key)
 - Authenticated routes: `/forge/*`, `/folio`, `/settings`, `/dashboard`, `/demos/chat`
 - `SettingsLive` — tabbed UI managing GitHub repos via `AshPhoenix.Form`
-- ~90 Mishka Chelekom UI components + Tailwind v4
+- Tailwind v4 + DaisyUI theme system with core Phoenix components
 - JSON:API endpoints + Swagger UI at `/api/json`
 - Health check at `GET /status`
 
@@ -161,7 +161,7 @@ lib/
 │       ├── research/           # Research coordinator + 4 workers
 │       └── pull_request/       # PR coordinator + 3 workers
 ├── jido_code_web/              # Web layer
-│   ├── components/             # ~90 Mishka Chelekom UI components
+│   ├── components/             # Core and app-specific Phoenix UI components
 │   ├── live/                   # LiveView modules
 │   │   ├── forge/              # Session list, create, show (terminal UI)
 │   │   ├── demos/              # Chat demo

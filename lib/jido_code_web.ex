@@ -85,7 +85,7 @@ defmodule JidoCodeWeb do
       # HTML escaping functionality
       import Phoenix.HTML
       # Core UI components
-      use JidoCodeWeb.Components.MishkaComponents
+      import JidoCodeWeb.CoreComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

@@ -146,37 +146,45 @@ defmodule JidoCodeWeb.SettingsLive do
         </div>
       </div>
 
-      <.modal
+      <div
         :if={@show_add_modal}
         id="add-repo-modal"
-        title="Add GitHub Repository"
-        show
-        on_cancel={JS.push("close_add_modal")}
+        class="fixed inset-0 z-50 flex items-center justify-center bg-base-content/40 p-4"
       >
-        <.form for={@form} phx-change="validate" phx-submit="save_repo" class="space-y-4">
-          <.text_field
-            field={@form[:owner]}
-            label="Owner"
-            placeholder="e.g., agentjido"
-          />
-          <.text_field
-            field={@form[:name]}
-            label="Repository Name"
-            placeholder="e.g., jido"
-          />
-          <p class="text-sm text-base-content/60">
-            Webhook secrets are managed in Security settings via encrypted SecretRef entries.
-          </p>
-          <div class="flex justify-end gap-3 mt-6">
-            <.button type="button" variant="outline" phx-click="close_add_modal">
-              Cancel
-            </.button>
-            <.button type="submit" color="primary">
-              Add Repository
-            </.button>
+        <div class="w-full max-w-lg rounded-lg border border-base-300 bg-base-100 p-6 shadow-xl">
+          <div class="flex items-center justify-between gap-4">
+            <h2 class="text-lg font-semibold">Add GitHub Repository</h2>
+            <button type="button" class="btn btn-sm btn-ghost" phx-click="close_add_modal">
+              <.icon name="hero-x-mark" class="w-4 h-4" />
+            </button>
           </div>
-        </.form>
-      </.modal>
+          <.form for={@form} phx-change="validate" phx-submit="save_repo" class="mt-4 space-y-4">
+            <.input
+              field={@form[:owner]}
+              type="text"
+              label="Owner"
+              placeholder="e.g., agentjido"
+            />
+            <.input
+              field={@form[:name]}
+              type="text"
+              label="Repository Name"
+              placeholder="e.g., jido"
+            />
+            <p class="text-sm text-base-content/60">
+              Webhook secrets are managed in Security settings via encrypted SecretRef entries.
+            </p>
+            <div class="mt-6 flex justify-end gap-3">
+              <button type="button" class="btn btn-outline" phx-click="close_add_modal">
+                Cancel
+              </button>
+              <button type="submit" class="btn btn-primary">
+                Add Repository
+              </button>
+            </div>
+          </.form>
+        </div>
+      </div>
     </Layouts.app>
     """
   end
@@ -201,7 +209,11 @@ defmodule JidoCodeWeb.SettingsLive do
       </div>
 
       <div class="space-y-4" id="repos-list" phx-update="stream">
-        <.card :for={{dom_id, repo} <- @repos} id={dom_id} padding="medium" rounded="large">
+        <div
+          :for={{dom_id, repo} <- @repos}
+          id={dom_id}
+          class="rounded-lg border border-base-300 bg-base-100 p-4"
+        >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
               <.icon name="hero-folder" class="w-6 h-6 text-base-content/50" />
@@ -222,36 +234,42 @@ defmodule JidoCodeWeb.SettingsLive do
             </div>
 
             <div class="flex items-center gap-4">
-              <.toggle_field
+              <button
                 id={"repo-toggle-#{repo.id}"}
-                name={"repo-enabled-#{repo.id}"}
-                checked={repo.enabled}
+                type="button"
                 phx-click="toggle_repo"
                 phx-value-id={repo.id}
-                color="success"
-                label={if repo.enabled, do: "Enabled", else: "Disabled"}
-              />
-              <.button
-                variant="outline"
-                color="danger"
-                size="small"
+                class={[
+                  "btn btn-sm min-w-24",
+                  repo.enabled && "btn-success",
+                  !repo.enabled && "btn-outline"
+                ]}
+              >
+                {if repo.enabled, do: "Enabled", else: "Disabled"}
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-error btn-sm"
                 phx-click="delete_repo"
                 phx-value-id={repo.id}
                 data-confirm="Are you sure you want to remove this repository?"
               >
                 <.icon name="hero-trash" class="w-4 h-4" />
-              </.button>
+              </button>
             </div>
           </div>
-        </.card>
+        </div>
 
-        <.card :if={Enum.empty?(Map.values(@repos))} padding="large" rounded="large" class="text-center">
+        <div
+          :if={Enum.empty?(Map.values(@repos))}
+          class="rounded-lg border border-base-300 bg-base-100 p-6 text-center"
+        >
           <.icon name="hero-inbox" class="w-12 h-12 mx-auto text-base-content/30 mb-3" />
           <p class="text-base-content/70">No repositories configured yet.</p>
           <p class="text-sm text-base-content/50 mt-1">
             Click "Add Repository" to connect your first GitHub repo.
           </p>
-        </.card>
+        </div>
       </div>
     </div>
     """
@@ -267,13 +285,13 @@ defmodule JidoCodeWeb.SettingsLive do
         </p>
       </div>
 
-      <.card padding="large" rounded="large" class="text-center">
+      <div class="rounded-lg border border-base-300 bg-base-100 p-6 text-center">
         <.icon name="hero-cpu-chip" class="w-12 h-12 mx-auto text-base-content/30 mb-3" />
         <p class="text-base-content/70">Agent settings coming soon.</p>
         <p class="text-sm text-base-content/50 mt-1">
           This section will allow you to configure agent behaviors and preferences.
         </p>
-      </.card>
+      </div>
     </div>
     """
   end
@@ -288,13 +306,13 @@ defmodule JidoCodeWeb.SettingsLive do
         </p>
       </div>
 
-      <.card padding="large" rounded="large" class="text-center">
+      <div class="rounded-lg border border-base-300 bg-base-100 p-6 text-center">
         <.icon name="hero-user-circle" class="w-12 h-12 mx-auto text-base-content/30 mb-3" />
         <p class="text-base-content/70">Account settings coming soon.</p>
         <p class="text-sm text-base-content/50 mt-1">
           This section will allow you to manage your profile and account preferences.
         </p>
-      </.card>
+      </div>
     </div>
     """
   end
@@ -309,12 +327,10 @@ defmodule JidoCodeWeb.SettingsLive do
         </p>
       </div>
 
-      <.card
+      <div
         :if={@security_status_error}
         id="settings-security-status-error"
-        padding="medium"
-        rounded="large"
-        class="border border-warning/50 bg-warning/10"
+        class="rounded-lg border border-warning/50 bg-warning/10 p-4"
       >
         <p id="settings-security-status-error-type" class="text-sm font-medium">
           Typed error: {@security_status_error.error_type}
@@ -325,14 +341,12 @@ defmodule JidoCodeWeb.SettingsLive do
         <p id="settings-security-status-error-recovery" class="text-sm mt-1">
           {@security_status_error.recovery_instruction}
         </p>
-      </.card>
+      </div>
 
-      <.card
+      <div
         :if={@security_revocation_error}
         id="settings-security-revocation-error"
-        padding="medium"
-        rounded="large"
-        class="border border-warning/50 bg-warning/10"
+        class="rounded-lg border border-warning/50 bg-warning/10 p-4"
       >
         <p id="settings-security-revocation-error-type" class="text-sm font-medium">
           Typed error: {@security_revocation_error.error_type}
@@ -343,9 +357,9 @@ defmodule JidoCodeWeb.SettingsLive do
         <p id="settings-security-revocation-recovery" class="text-sm mt-1">
           {@security_revocation_error.recovery_instruction}
         </p>
-      </.card>
+      </div>
 
-      <.card id="settings-security-secret-refs" padding="medium" rounded="large">
+      <div id="settings-security-secret-refs" class="rounded-lg border border-base-300 bg-base-100 p-4">
         <div class="space-y-4">
           <div>
             <h3 class="text-lg font-semibold">Operational Secret References</h3>
@@ -354,12 +368,10 @@ defmodule JidoCodeWeb.SettingsLive do
             </p>
           </div>
 
-          <.card
+          <div
             :if={@security_secret_error}
             id="settings-security-secret-error"
-            padding="medium"
-            rounded="large"
-            class="border border-warning/50 bg-warning/10"
+            class="rounded-lg border border-warning/50 bg-warning/10 p-4"
           >
             <p id="settings-security-secret-error-type" class="text-sm font-medium">
               Typed error: {@security_secret_error.error_type}
@@ -370,7 +382,7 @@ defmodule JidoCodeWeb.SettingsLive do
             <p id="settings-security-secret-error-recovery" class="text-sm mt-1">
               {@security_secret_error.recovery_instruction}
             </p>
-          </.card>
+          </div>
 
           <.form
             id="settings-security-secret-form"
@@ -401,27 +413,25 @@ defmodule JidoCodeWeb.SettingsLive do
             />
 
             <div class="md:col-span-2">
-              <.button id="settings-security-secret-save" type="submit" color="primary">
+              <button id="settings-security-secret-save" type="submit" class="btn btn-primary">
                 Save SecretRef
-              </.button>
+              </button>
             </div>
           </.form>
 
           <div id="settings-security-secret-metadata" class="space-y-3">
-            <.card
+            <div
               :if={Enum.empty?(@security_secret_refs)}
               id="settings-security-secret-empty"
-              padding="medium"
-              rounded="large"
+              class="rounded-lg border border-base-300 bg-base-100 p-4"
             >
               No SecretRef metadata stored yet.
-            </.card>
+            </div>
 
-            <.card
+            <div
               :for={secret <- @security_secret_refs}
               id={"settings-security-secret-#{secret.id}"}
-              padding="medium"
-              rounded="large"
+              class="rounded-lg border border-base-300 bg-base-100 p-4"
             >
               <div class="space-y-3">
                 <dl class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -462,23 +472,25 @@ defmodule JidoCodeWeb.SettingsLive do
                     </dd>
                   </div>
                 </dl>
-                <.button
+                <button
                   id={"settings-security-secret-revoke-#{secret.id}"}
                   type="button"
-                  variant="outline"
-                  color="danger"
+                  class="btn btn-outline btn-error"
                   phx-click="revoke_security_secret_ref"
                   phx-value-id={secret.id}
                 >
                   Revoke secret
-                </.button>
+                </button>
               </div>
-            </.card>
+            </div>
           </div>
         </div>
-      </.card>
+      </div>
 
-      <.card id="settings-security-provider-rotation" padding="medium" rounded="large">
+      <div
+        id="settings-security-provider-rotation"
+        class="rounded-lg border border-base-300 bg-base-100 p-4"
+      >
         <div class="space-y-4">
           <div>
             <h3 class="text-lg font-semibold">Provider Credential Rotation</h3>
@@ -487,12 +499,10 @@ defmodule JidoCodeWeb.SettingsLive do
             </p>
           </div>
 
-          <.card
+          <div
             :if={@security_provider_rotation_error}
             id="settings-security-provider-rotation-error"
-            padding="medium"
-            rounded="large"
-            class="border border-warning/50 bg-warning/10"
+            class="rounded-lg border border-warning/50 bg-warning/10 p-4"
           >
             <p id="settings-security-provider-rotation-error-type" class="text-sm font-medium">
               Typed error: {@security_provider_rotation_error.error_type}
@@ -503,7 +513,7 @@ defmodule JidoCodeWeb.SettingsLive do
             <p id="settings-security-provider-rotation-error-recovery" class="text-sm mt-1">
               {@security_provider_rotation_error.recovery_instruction}
             </p>
-          </.card>
+          </div>
 
           <.form
             id="settings-security-provider-rotation-form"
@@ -526,17 +536,16 @@ defmodule JidoCodeWeb.SettingsLive do
               placeholder="Never shown after rotation"
             />
             <div class="md:col-span-2">
-              <.button id="settings-security-provider-rotation-submit" type="submit" color="primary">
+              <button id="settings-security-provider-rotation-submit" type="submit" class="btn btn-primary">
                 Rotate provider credential
-              </.button>
+              </button>
             </div>
           </.form>
 
-          <.card
+          <div
             :if={@security_provider_rotation_report}
             id="settings-security-provider-rotation-report"
-            padding="medium"
-            rounded="large"
+            class="rounded-lg border border-base-300 bg-base-100 p-4"
           >
             <dl class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
@@ -588,20 +597,18 @@ defmodule JidoCodeWeb.SettingsLive do
                 </dd>
               </div>
             </dl>
-          </.card>
+          </div>
         </div>
-      </.card>
+      </div>
 
-      <.card id="settings-security-secret-audit-log" padding="medium" rounded="large">
+      <div id="settings-security-secret-audit-log" class="rounded-lg border border-base-300 bg-base-100 p-4">
         <div class="space-y-3">
           <h3 class="text-lg font-semibold">Secret Lifecycle Audit</h3>
 
-          <.card
+          <div
             :if={@security_secret_audit_error}
             id="settings-security-secret-audit-error"
-            padding="medium"
-            rounded="large"
-            class="border border-warning/50 bg-warning/10"
+            class="rounded-lg border border-warning/50 bg-warning/10 p-4"
           >
             <p id="settings-security-secret-audit-error-type" class="text-sm font-medium">
               Typed error: {@security_secret_audit_error.error_type}
@@ -612,7 +619,7 @@ defmodule JidoCodeWeb.SettingsLive do
             <p id="settings-security-secret-audit-error-recovery" class="text-sm mt-1">
               {@security_secret_audit_error.recovery_instruction}
             </p>
-          </.card>
+          </div>
 
           <ul class="space-y-2">
             <li
@@ -628,25 +635,23 @@ defmodule JidoCodeWeb.SettingsLive do
             No secret lifecycle events recorded yet.
           </p>
         </div>
-      </.card>
+      </div>
 
       <div id="settings-security-token-status" class="space-y-3">
         <h3 class="text-lg font-semibold">Session Tokens</h3>
 
-        <.card
+        <div
           :if={Enum.empty?(@security_tokens)}
           id="settings-security-token-empty"
-          padding="medium"
-          rounded="large"
+          class="rounded-lg border border-base-300 bg-base-100 p-4"
         >
           No owner session tokens found.
-        </.card>
+        </div>
 
-        <.card
+        <div
           :for={token <- @security_tokens}
           id={"settings-security-token-#{token.id}"}
-          padding="medium"
-          rounded="large"
+          class="rounded-lg border border-base-300 bg-base-100 p-4"
         >
           <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <dl class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -676,37 +681,34 @@ defmodule JidoCodeWeb.SettingsLive do
               </div>
             </dl>
 
-            <.button
+            <button
               id={"settings-security-revoke-token-#{token.id}"}
               type="button"
-              variant="outline"
-              color="danger"
+              class="btn btn-outline btn-error"
               phx-click="revoke_security_token"
               phx-value-jti={token.id}
             >
               Revoke token
-            </.button>
+            </button>
           </div>
-        </.card>
+        </div>
       </div>
 
       <div id="settings-security-api-key-status" class="space-y-3">
         <h3 class="text-lg font-semibold">API Keys</h3>
 
-        <.card
+        <div
           :if={Enum.empty?(@security_api_keys)}
           id="settings-security-api-key-empty"
-          padding="medium"
-          rounded="large"
+          class="rounded-lg border border-base-300 bg-base-100 p-4"
         >
           No owner API keys found.
-        </.card>
+        </div>
 
-        <.card
+        <div
           :for={api_key <- @security_api_keys}
           id={"settings-security-api-key-#{api_key.id}"}
-          padding="medium"
-          rounded="large"
+          class="rounded-lg border border-base-300 bg-base-100 p-4"
         >
           <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <dl class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -736,21 +738,20 @@ defmodule JidoCodeWeb.SettingsLive do
               </div>
             </dl>
 
-            <.button
+            <button
               id={"settings-security-revoke-api-key-#{api_key.id}"}
               type="button"
-              variant="outline"
-              color="danger"
+              class="btn btn-outline btn-error"
               phx-click="revoke_security_api_key"
               phx-value-id={api_key.id}
             >
               Revoke API key
-            </.button>
+            </button>
           </div>
-        </.card>
+        </div>
       </div>
 
-      <.card id="settings-security-audit-log" padding="medium" rounded="large">
+      <div id="settings-security-audit-log" class="rounded-lg border border-base-300 bg-base-100 p-4">
         <h3 class="text-lg font-semibold mb-3">Revocation Audit</h3>
         <ul class="space-y-2">
           <li
@@ -764,7 +765,7 @@ defmodule JidoCodeWeb.SettingsLive do
         <p :if={Enum.empty?(@security_audit_events)} class="text-sm text-base-content/60">
           No revocation events recorded in this browser session.
         </p>
-      </.card>
+      </div>
     </div>
     """
   end
