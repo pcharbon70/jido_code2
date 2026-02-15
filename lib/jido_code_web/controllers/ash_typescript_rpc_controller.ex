@@ -5,11 +5,30 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
 
   alias AshAuthentication.{Info, Strategy}
   alias JidoCode.Accounts.User
+  alias JidoCode.Security.LogRedactor
 
   @api_key_audit_event [:jido_code, :rpc, :api_key, :used]
   @api_key_prefix "agentjido_"
   @rpc_auth_mode_policy_event "rpc_auth_mode_policy_decision"
+  @rpc_validation_redaction_event "rpc_validation_error_redaction_failed"
   @all_auth_modes ["anonymous", "session", "bearer", "api_key"]
+  @validation_error_type "validation_error"
+  @validation_error_default_message "RPC validation failed."
+  @validation_error_default_short_message "Validation failed"
+  @validation_redaction_failure_reason "validation_error_redaction_failed"
+  @validation_reason_code_pattern ~r/[^a-zA-Z0-9._-]/
+  @validation_safe_detail_keys [
+    :suggestion,
+    :hint,
+    :expected,
+    :expected_code,
+    :allowed_fields,
+    :expected_members,
+    :expected_keys,
+    :provided_keys,
+    :disallowed_paths,
+    :denied_paths
+  ]
   @default_action_auth_mode_policy %{
     require_actor?: false,
     allowed_auth_modes: @all_auth_modes
@@ -35,6 +54,7 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
       :jido_code
       |> AshTypescript.Rpc.validate_action(request_conn, request_params)
       |> normalize_error_response()
+      |> normalize_validation_error_response()
     end)
   end
 
@@ -397,6 +417,283 @@ defmodule JidoCodeWeb.AshTypescriptRpcController do
   end
 
   defp normalize_error_response(result), do: result
+
+  defp normalize_validation_error_response(result) when is_map(result) do
+    success = map_get(result, :success, "success")
+    errors = map_get(result, :errors, "errors")
+
+    if success == false and is_list(errors) do
+      case sanitize_and_redact_validation_errors(errors) do
+        {:ok, sanitized_errors} ->
+          put_map_value(result, :errors, "errors", sanitized_errors)
+
+        {:error, reason} ->
+          log_validation_redaction_failure(reason)
+          generic_validation_error_response()
+      end
+    else
+      result
+    end
+  end
+
+  defp normalize_validation_error_response(result), do: result
+
+  defp sanitize_and_redact_validation_errors(errors) when is_list(errors) do
+    redactor = validation_error_redactor()
+
+    errors
+    |> Enum.reduce_while({:ok, []}, fn error, {:ok, acc} ->
+      with {:ok, sanitized_error} <- sanitize_validation_error(error),
+           {:ok, redacted_error} <- redact_validation_error(redactor, sanitized_error) do
+        {:cont, {:ok, [redacted_error | acc]}}
+      else
+        {:error, _reason} = error_result ->
+          {:halt, error_result}
+      end
+    end)
+    |> case do
+      {:ok, sanitized_errors} -> {:ok, Enum.reverse(sanitized_errors)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp sanitize_and_redact_validation_errors(_errors) do
+    {:error, %{error_type: "redaction_invalid_payload"}}
+  end
+
+  defp sanitize_validation_error(error) when is_map(error) do
+    normalized_type = normalize_validation_error_type(map_get(error, :type, "type"))
+    reason_code = resolve_validation_reason_code(error, normalized_type)
+
+    normalized_error = %{
+      type: normalized_type,
+      short_message:
+        normalize_validation_error_message(
+          map_get(error, :short_message, "short_message"),
+          @validation_error_default_short_message
+        ),
+      message:
+        normalize_validation_error_message(
+          map_get(error, :message, "message"),
+          @validation_error_default_message
+        ),
+      vars: %{},
+      fields: normalize_validation_error_field_list(map_get(error, :fields, "fields", [])),
+      path: normalize_validation_error_path(map_get(error, :path, "path", [])),
+      details:
+        normalize_validation_error_details(
+          map_get(error, :details, "details", %{}),
+          reason_code,
+          normalized_type
+        )
+    }
+
+    {:ok, normalized_error}
+  end
+
+  defp sanitize_validation_error(_error) do
+    {:ok, generic_validation_error()}
+  end
+
+  defp redact_validation_error(redactor, error) when is_atom(redactor) and is_map(error) do
+    try do
+      case apply(redactor, :redact_event, [error]) do
+        {:ok, redacted_error} when is_map(redacted_error) ->
+          {:ok, redacted_error}
+
+        {:error, reason} ->
+          {:error, reason}
+
+        _other ->
+          {:error, %{error_type: "redaction_invalid_response", message: "Unexpected redactor response."}}
+      end
+    rescue
+      exception ->
+        {:error, %{error_type: "redaction_exception", message: Exception.message(exception)}}
+    catch
+      kind, _reason ->
+        {:error, %{error_type: "redaction_#{kind}", message: "Redaction crashed unexpectedly."}}
+    end
+  end
+
+  defp redact_validation_error(_redactor, _error) do
+    {:error, %{error_type: "redaction_invalid_redactor"}}
+  end
+
+  defp normalize_validation_error_type(value) do
+    case normalize_optional_string(value) do
+      nil -> @validation_error_type
+      normalized_type -> normalized_type
+    end
+  end
+
+  defp normalize_validation_error_message(value, default_message) do
+    case normalize_optional_string(value) do
+      nil -> default_message
+      normalized_message -> normalized_message
+    end
+  end
+
+  defp normalize_validation_error_details(details, reason_code, normalized_type) when is_map(details) do
+    original_type = details |> map_get(:original_type, "original_type") |> normalize_optional_string()
+
+    sanitized_details =
+      @validation_safe_detail_keys
+      |> Enum.reduce(%{}, fn key, acc ->
+        string_key = Atom.to_string(key)
+
+        case map_get(details, key, string_key, :__missing__) do
+          :__missing__ ->
+            acc
+
+          value ->
+            if safe_validation_detail_value?(value) do
+              put_map_value(acc, key, string_key, value)
+            else
+              acc
+            end
+        end
+      end)
+      |> put_map_value(:reason, "reason", reason_code)
+
+    if is_binary(original_type) and original_type != "" and original_type != normalized_type do
+      put_map_value(sanitized_details, :original_type, "original_type", original_type)
+    else
+      sanitized_details
+    end
+  end
+
+  defp normalize_validation_error_details(_details, reason_code, _normalized_type) do
+    %{reason: reason_code}
+  end
+
+  defp safe_validation_detail_value?(value) when is_binary(value), do: true
+  defp safe_validation_detail_value?(value) when is_boolean(value) or is_number(value), do: true
+  defp safe_validation_detail_value?(nil), do: true
+
+  defp safe_validation_detail_value?(value) when is_list(value) do
+    Enum.all?(value, fn
+      item when is_binary(item) -> true
+      item when is_boolean(item) or is_number(item) -> true
+      item when is_atom(item) -> true
+      nil -> true
+      _other -> false
+    end)
+  end
+
+  defp safe_validation_detail_value?(_value), do: false
+
+  defp normalize_validation_error_field_list(value) when is_list(value) do
+    value
+    |> Enum.reduce([], fn item, acc ->
+      case normalize_validation_field_value(item) do
+        nil -> acc
+        normalized_item -> [normalized_item | acc]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp normalize_validation_error_field_list(_value), do: []
+
+  defp normalize_validation_error_path(value) when is_list(value) do
+    value
+    |> Enum.reduce([], fn
+      item, acc when is_integer(item) ->
+        [item | acc]
+
+      item, acc ->
+        case normalize_validation_field_value(item) do
+          nil -> acc
+          normalized_item -> [normalized_item | acc]
+        end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp normalize_validation_error_path(_value), do: []
+
+  defp normalize_validation_field_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized_value -> normalized_value
+    end
+  end
+
+  defp normalize_validation_field_value(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_validation_field_value()
+
+  defp normalize_validation_field_value(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_validation_field_value(_value), do: nil
+
+  defp resolve_validation_reason_code(error, normalized_type) when is_map(error) do
+    details = map_get(error, :details, "details", %{})
+
+    details_reason =
+      if is_map(details),
+        do: details |> map_get(:reason, "reason") |> normalize_optional_string(),
+        else: nil
+
+    details_reason
+    |> case do
+      nil -> normalized_type
+      explicit_reason -> explicit_reason
+    end
+    |> sanitize_validation_reason_code()
+  end
+
+  defp resolve_validation_reason_code(_error, normalized_type) do
+    sanitize_validation_reason_code(normalized_type)
+  end
+
+  defp sanitize_validation_reason_code(value) do
+    case normalize_optional_string(value) do
+      nil ->
+        @validation_error_type
+
+      reason_code ->
+        reason_code
+        |> String.downcase()
+        |> String.replace(@validation_reason_code_pattern, "_")
+    end
+  end
+
+  defp generic_validation_error_response do
+    %{success: false, errors: [generic_validation_error()]}
+  end
+
+  defp generic_validation_error do
+    %{
+      type: @validation_error_type,
+      short_message: @validation_error_default_short_message,
+      message: @validation_error_default_message,
+      vars: %{},
+      fields: [],
+      path: [],
+      details: %{
+        reason: @validation_redaction_failure_reason
+      }
+    }
+  end
+
+  defp log_validation_redaction_failure(reason) do
+    Logger.warning("#{@rpc_validation_redaction_event} reason=#{validation_redaction_reason_type(reason)}")
+  end
+
+  defp validation_error_redactor do
+    Application.get_env(:jido_code, :rpc_validation_error_redactor, LogRedactor)
+  end
+
+  defp validation_redaction_reason_type(%{error_type: error_type}) when is_binary(error_type),
+    do: sanitize_validation_reason_code(error_type)
+
+  defp validation_redaction_reason_type(%{"error_type" => error_type}) when is_binary(error_type),
+    do: sanitize_validation_reason_code(error_type)
+
+  defp validation_redaction_reason_type(reason) when is_atom(reason),
+    do: reason |> Atom.to_string() |> sanitize_validation_reason_code()
+
+  defp validation_redaction_reason_type(_reason), do: "unknown"
 
   defp normalize_rpc_error(error) when is_map(error) do
     case map_get(error, :type, "type") do

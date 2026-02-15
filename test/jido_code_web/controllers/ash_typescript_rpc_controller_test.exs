@@ -8,6 +8,7 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
   alias JidoCode.Accounts.ApiKey
   alias JidoCode.Accounts.Token
   alias JidoCode.Accounts.User
+  alias JidoCode.TestSupport.FailingRpcValidationErrorRedactor
 
   @api_key_audit_event [:jido_code, :rpc, :api_key, :used]
   @run_action_params %{"action" => "rpc_list_repositories", "fields" => ["id"]}
@@ -125,8 +126,66 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
     assert is_binary(error["type"])
     assert is_binary(error["message"])
     assert is_map(error["details"])
+    assert is_binary(error["details"]["reason"])
     assert is_list(error["fields"])
     assert is_list(error["path"])
+  end
+
+  test "validate endpoint omits plaintext secret values from validation errors", %{conn: conn} do
+    secret = "plaintext-secret-#{System.unique_integer([:positive])}"
+
+    response =
+      conn
+      |> post(~p"/rpc/validate", %{
+        "action" => "rpc_#{secret}",
+        "fields" => ["id"]
+      })
+      |> json_response(200)
+
+    assert response["success"] == false
+    refute Map.has_key?(response, "data")
+
+    [error | _] = response["errors"]
+    assert error["details"]["reason"] == "unknown_action"
+    assert error["vars"] == %{}
+    refute Jason.encode!(response) =~ secret
+  end
+
+  test "validate endpoint returns generic safe payload when redaction fails", %{conn: conn} do
+    original_redactor = Application.get_env(:jido_code, :rpc_validation_error_redactor, :__missing__)
+
+    on_exit(fn ->
+      restore_env(:rpc_validation_error_redactor, original_redactor)
+    end)
+
+    Application.put_env(
+      :jido_code,
+      :rpc_validation_error_redactor,
+      FailingRpcValidationErrorRedactor
+    )
+
+    secret = "plaintext-secret-#{System.unique_integer([:positive])}"
+
+    response =
+      conn
+      |> post(~p"/rpc/validate", %{
+        "action" => "rpc_#{secret}",
+        "fields" => ["id"]
+      })
+      |> json_response(200)
+
+    assert response["success"] == false
+    refute Map.has_key?(response, "data")
+
+    [error | _] = response["errors"]
+    assert error["type"] == "validation_error"
+    assert error["short_message"] == "Validation failed"
+    assert error["message"] == "RPC validation failed."
+    assert error["details"]["reason"] == "validation_error_redaction_failed"
+    assert error["fields"] == []
+    assert error["path"] == []
+    assert error["vars"] == %{}
+    refute Jason.encode!(response) =~ secret
   end
 
   test "validate endpoint returns typed contract mismatch when action is unknown", %{conn: conn} do
@@ -449,4 +508,7 @@ defmodule JidoCodeWeb.AshTypescriptRpcControllerTest do
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
+
+  defp restore_env(key, :__missing__), do: Application.delete_env(:jido_code, key)
+  defp restore_env(key, value), do: Application.put_env(:jido_code, key, value)
 end

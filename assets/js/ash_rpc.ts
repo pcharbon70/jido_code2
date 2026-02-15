@@ -833,3 +833,104 @@ export async function validateRpcListRepositories(
 }
 
 
+export type RpcListRepositoriesSessionOrBearerFields = UnifiedFieldSelection<GitHubRepoResourceSchema>[];
+
+
+export type InferRpcListRepositoriesSessionOrBearerResult<
+  Fields extends RpcListRepositoriesSessionOrBearerFields | undefined,
+  Page extends RpcListRepositoriesSessionOrBearerConfig["page"] = undefined
+> = ConditionalPaginatedResultMixed<Page, Array<InferResult<GitHubRepoResourceSchema, Fields>>, {
+  results: Array<InferResult<GitHubRepoResourceSchema, Fields>>;
+  hasMore: boolean;
+  limit: number;
+  offset: number;
+  count?: number | null;
+  type: "offset";
+}, {
+  results: Array<InferResult<GitHubRepoResourceSchema, Fields>>;
+  hasMore: boolean;
+  limit: number;
+  after: string | null;
+  before: string | null;
+  previousPage: string;
+  nextPage: string;
+  count?: number | null;
+  type: "keyset";
+}>;
+
+export type RpcListRepositoriesSessionOrBearerConfig = {
+  tenant?: string;
+  fields: RpcListRepositoriesSessionOrBearerFields;
+  filter?: GitHubRepoFilterInput;
+  sort?: string;
+  page?: (
+    {
+      limit?: number;
+      offset?: number;
+      count?: boolean;
+    } | {
+      limit?: number;
+      after?: string;
+      before?: string;
+    }
+  );
+  headers?: Record<string, string>;
+  fetchOptions?: RequestInit;
+  customFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+};
+
+export type RpcListRepositoriesSessionOrBearerResult<Fields extends RpcListRepositoriesSessionOrBearerFields, Page extends RpcListRepositoriesSessionOrBearerConfig["page"] = undefined> = | { success: true; data: InferRpcListRepositoriesSessionOrBearerResult<Fields, Page>; }
+| { success: false; errors: AshRpcError[]; }
+
+;
+
+/**
+ * Read Repo records
+ *
+ * @ashActionType :read
+ */
+export async function rpcListRepositoriesSessionOrBearer<Fields extends RpcListRepositoriesSessionOrBearerFields, Config extends RpcListRepositoriesSessionOrBearerConfig = RpcListRepositoriesSessionOrBearerConfig>(
+  config: Config & { fields: Fields }
+): Promise<RpcListRepositoriesSessionOrBearerResult<Fields, Config["page"]>> {
+  const payload = {
+    action: "rpc_list_repositories_session_or_bearer",
+    ...(config.tenant !== undefined && { tenant: config.tenant }),
+    ...(config.fields !== undefined && { fields: config.fields }),
+    ...(config.filter && { filter: config.filter }),
+    ...(config.sort && { sort: config.sort }),
+    ...(config.page && { page: config.page })
+  };
+
+  return executeActionRpcRequest<RpcListRepositoriesSessionOrBearerResult<Fields, Config["page"]>>(
+    payload,
+    config
+  );
+}
+
+
+/**
+ * Validate: Read Repo records
+ *
+ * @ashActionType :read
+ * @validation true
+ */
+export async function validateRpcListRepositoriesSessionOrBearer(
+  config: {
+  tenant?: string;
+  headers?: Record<string, string>;
+  fetchOptions?: RequestInit;
+  customFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+}
+): Promise<ValidationResult> {
+  const payload = {
+    action: "rpc_list_repositories_session_or_bearer",
+    ...(config.tenant !== undefined && { tenant: config.tenant })
+  };
+
+  return executeValidationRpcRequest<ValidationResult>(
+    payload,
+    config
+  );
+}
+
+

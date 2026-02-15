@@ -33,7 +33,9 @@ defmodule JidoCodeWeb.SetupLive do
 
   @impl true
   def mount(params, _session, socket) do
-    parsed_step = parse_step(params["step"])
+    # params["step"] may be a form data map (POST) or a string (GET query param)
+    # For form data, we'll use the step from SystemConfig, not params
+    parsed_step = if is_map(params["step"]), do: nil, else: parse_step(params["step"])
 
     {onboarding_step, onboarding_state, default_environment, workspace_root, diagnostic} =
       case SystemConfig.load() do
@@ -42,7 +44,7 @@ defmodule JidoCodeWeb.SetupLive do
            params["diagnostic"] || @default_diagnostic}
 
         {:error, %{diagnostic: load_diagnostic}} ->
-          {parsed_step, %{}, :sprite, nil, params["diagnostic"] || load_diagnostic}
+          {parsed_step || 1, %{}, :sprite, nil, params["diagnostic"] || load_diagnostic}
       end
 
     prerequisite_report = resolve_prerequisite_report(onboarding_step, onboarding_state)
