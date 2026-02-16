@@ -52,3 +52,9 @@ npm-debug.log
 .env.local
 .env.*.local
 
+# Burrito build output
+/burrito_out/
+
+# Tauri build artifacts
+/tauri/src-tauri/target/
+/tauri/node_modules/
