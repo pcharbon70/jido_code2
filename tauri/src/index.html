@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Jido Code - Loading</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #0a0a0a;
+            color: #e5e5e5;
+        }
+        .loading {
+            text-align: center;
+        }
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .spinner {
+            border: 3px solid #262626;
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            animation: spin 1s linear infinite;
+            margin: 24px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        p {
+            color: #a3a3a3;
+            font-size: 0.875rem;
+        }
+        #status {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.75rem;
+            color: #737373;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading">
+        <h1>Jido Code</h1>
+        <div class="spinner"></div>
+        <p>Starting backend service...</p>
+        <p id="status">Initializing...</p>
+    </div>
+
+    <script>
+        let attempts = 0;
+        const maxAttempts = 30;
+
+        function checkBackend() {
+            attempts++;
+            const status = document.getElementById('status');
+
+            if (attempts > maxAttempts) {
+                status.textContent = 'Backend failed to start. Please check logs.';
+                return;
+            }
+
+            status.textContent = `Checking backend... (${attempts}/${maxAttempts})`;
+
+            fetch('http://localhost:4000')
+                .then(response => {
+                    if (response.ok) {
+                        status.textContent = 'Backend ready! Redirecting...';
+                        window.location.href = 'http://localhost:4000';
+                    } else {
+                        setTimeout(checkBackend, 1000);
+                    }
+                })
+                .catch(() => {
+                    setTimeout(checkBackend, 1000);
+                });
+        }
+
+        setTimeout(checkBackend, 3000);
+    </script>
+</body>
+</html>
