@@ -26,7 +26,35 @@ if secret_ref_encryption_key = System.get_env("JIDO_CODE_SECRET_REF_ENCRYPTION_K
   config :jido_code, secret_ref_encryption_key: secret_ref_encryption_key
 end
 
-if config_env() == :prod do
+# Desktop/Burrito mode: when BURRITO_TARGET is set (by Tauri sidecar or manually),
+# override prod config for local desktop use. This block runs before the prod
+# block below, providing defaults so the raises are never hit.
+if config_env() == :prod and System.get_env("BURRITO_TARGET") != nil do
+  port = String.to_integer(System.get_env("PORT") || "4000")
+
+  config :jido_code, JidoCode.Repo,
+    url: System.get_env("DATABASE_URL") || "ecto://postgres:postgres@localhost/jido_code_dev",
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
+
+  config :jido_code, JidoCodeWeb.Endpoint,
+    url: [host: "localhost", port: port, scheme: "http"],
+    http: [ip: {0, 0, 0, 0}, port: port],
+    secret_key_base:
+      System.get_env("SECRET_KEY_BASE") ||
+        "j1d0_c0d3_d3skt0p_s3cr3t_k3y_b4s3_th4t_1s_l0ng_3n0ugh_f0r_c00k13_st0r3_v4l1d4t10n_64b",
+    server: true,
+    check_origin: false,
+    force_ssl: [
+      rewrite_on: [:x_forwarded_proto],
+      exclude: [hosts: ["localhost", "127.0.0.1"], paths: ["/status"]]
+    ]
+
+  config :jido_code,
+    token_signing_secret:
+      System.get_env("TOKEN_SIGNING_SECRET") || "jido_code_desktop_token_signing_secret"
+end
+
+if config_env() == :prod and System.get_env("BURRITO_TARGET") == nil do
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
