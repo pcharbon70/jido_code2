@@ -37,11 +37,9 @@ defmodule JidoCode.Application do
     :ok
   end
 
-  defp forge_dev_children do
-    if Mix.env() in [:dev, :test] do
-      [{JidoCode.Forge.SpriteClient.Fake, []}]
-    else
-      []
-    end
+  if Application.compile_env(:jido_code, :runtime_mode, :prod) in [:dev, :test] do
+    defp forge_dev_children, do: [{JidoCode.Forge.SpriteClient.Fake, []}]
+  else
+    defp forge_dev_children, do: []
   end
 end
